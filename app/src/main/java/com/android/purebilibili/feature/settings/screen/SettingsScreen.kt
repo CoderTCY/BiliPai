@@ -125,6 +125,7 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val privacyModeEnabled by SettingsManager.getPrivacyModeEnabled(context).collectAsStateWithLifecycle(initialValue = false)
     val searchDiscoverSectionEnabled by SettingsManager.getSearchDiscoverSectionEnabled(context).collectAsStateWithLifecycle(initialValue = true)
+    val searchSuggestionsEnabled by SettingsManager.getSearchSuggestionsEnabled(context).collectAsStateWithLifecycle(initialValue = true)
     val privacyContentAuthenticationEnabled by SettingsManager
         .getPrivacyContentAuthenticationEnabled(context)
         .collectAsStateWithLifecycle(initialValue = false)
@@ -318,6 +319,9 @@ fun SettingsScreen(
     // Logic Callbacks
     val onSearchDiscoverSectionChange: (Boolean) -> Unit = { enabled ->
         scope.launch { SettingsManager.setSearchDiscoverSectionEnabled(context, enabled) }
+    }
+    val onSearchSuggestionsChange: (Boolean) -> Unit = { enabled ->
+        scope.launch { SettingsManager.setSearchSuggestionsEnabled(context, enabled) }
     }
     val onPrivacyModeChange: (Boolean) -> Unit = { enabled ->
         scope.launch { SettingsManager.setPrivacyModeEnabled(context, enabled) }
@@ -1040,6 +1044,7 @@ fun SettingsScreen(
                     onCommentFraudHistoryClick = onCommentFraudHistoryClickAction,
                     onPrivacyModeChange = onPrivacyModeChange,
                     onSearchDiscoverSectionChange = onSearchDiscoverSectionChange,
+                    onSearchSuggestionsChange = onSearchSuggestionsChange,
                     onPrivacyContentAuthenticationChange = onPrivacyContentAuthenticationChange,
                     onCrashTrackingChange = onCrashTrackingChange,
                     onAnalyticsChange = onAnalyticsChange,
@@ -1049,6 +1054,7 @@ fun SettingsScreen(
                     onAppUpdateChannelChange = onAppUpdateChannelChange,
                     privacyModeEnabled = privacyModeEnabled,
                     searchDiscoverSectionEnabled = searchDiscoverSectionEnabled,
+                    searchSuggestionsEnabled = searchSuggestionsEnabled,
                     customDownloadPath = downloadExportTreeUri ?: customDownloadPath,
                     customImageSavePath = imageSaveTreeUri,
                     cacheSize = state.cacheSize,
@@ -1209,6 +1215,7 @@ private fun MobileSettingsNavLayout(
     onCommentFraudHistoryClick: () -> Unit,
     onPrivacyModeChange: (Boolean) -> Unit,
     onSearchDiscoverSectionChange: (Boolean) -> Unit,
+    onSearchSuggestionsChange: (Boolean) -> Unit,
     onPrivacyContentAuthenticationChange: (Boolean) -> Unit,
     onCrashTrackingChange: (Boolean) -> Unit,
     onAnalyticsChange: (Boolean) -> Unit,
@@ -1218,6 +1225,7 @@ private fun MobileSettingsNavLayout(
     onAppUpdateChannelChange: (SettingsManager.AppUpdateChannel) -> Unit,
     privacyModeEnabled: Boolean,
     searchDiscoverSectionEnabled: Boolean,
+    searchSuggestionsEnabled: Boolean,
     privacyContentAuthenticationEnabled: Boolean,
     customDownloadPath: String?,
     customImageSavePath: String?,
@@ -1315,6 +1323,7 @@ private fun MobileSettingsNavLayout(
         onOpenLinksClick = onOpenLinksClick,
         onPrivacyModeChange = onPrivacyModeChange,
         onSearchDiscoverSectionChange = onSearchDiscoverSectionChange,
+        onSearchSuggestionsChange = onSearchSuggestionsChange,
         onPrivacyContentAuthenticationChange = onPrivacyContentAuthenticationChange,
         onCrashTrackingChange = onCrashTrackingChange,
         onAnalyticsChange = onAnalyticsChange,
@@ -1335,6 +1344,7 @@ private fun MobileSettingsNavLayout(
     val rootCategoryState = SettingsRootCategoryState(
         privacyModeEnabled = privacyModeEnabled,
         searchDiscoverSectionEnabled = searchDiscoverSectionEnabled,
+        searchSuggestionsEnabled = searchSuggestionsEnabled,
         privacyContentAuthenticationEnabled = privacyContentAuthenticationEnabled,
         crashTrackingEnabled = crashTrackingEnabled,
         analyticsEnabled = analyticsEnabled,

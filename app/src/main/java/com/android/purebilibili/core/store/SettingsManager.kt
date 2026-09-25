@@ -1374,8 +1374,7 @@ object SettingsManager {
     private val KEY_PLAYER_PROGRESS_PLACEMENT = intPreferencesKey("player_progress_placement")
     private val KEY_SEARCH_HOT_SECTION_ENABLED = booleanPreferencesKey("search_hot_section_enabled")
     private val KEY_SEARCH_DISCOVER_SECTION_ENABLED = booleanPreferencesKey("search_discover_section_enabled")
-    // 旧「个性化搜索推荐」不再控制搜索发现的显隐；用户更改显隐时清除该旧值。
-    private val KEY_LEGACY_SEARCH_RECOMMEND_ENABLED = booleanPreferencesKey("search_suggestions_enabled")
+    private val KEY_SEARCH_SUGGESTIONS_ENABLED = booleanPreferencesKey("search_suggestions_enabled")
     //  [新增] 双击跳转秒数 (可分开设置快进和后退)
     private val KEY_DOUBLE_TAP_SEEK_ENABLED = booleanPreferencesKey("double_tap_seek_enabled")
     private val KEY_SEEK_FORWARD_SECONDS = intPreferencesKey("seek_forward_seconds")
@@ -3621,13 +3620,24 @@ object SettingsManager {
     internal fun resolveSearchDiscoverSectionEnabled(preferences: Preferences): Boolean =
         preferences[KEY_SEARCH_DISCOVER_SECTION_ENABLED] ?: true
 
+    internal fun resolveSearchSuggestionsEnabled(preferences: Preferences): Boolean =
+        preferences[KEY_SEARCH_SUGGESTIONS_ENABLED] ?: true
+
+    fun getSearchSuggestionsEnabled(context: Context): Flow<Boolean> = context.settingsDataStore.data
+        .map(::resolveSearchSuggestionsEnabled)
+
+    suspend fun setSearchSuggestionsEnabled(context: Context, value: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[KEY_SEARCH_SUGGESTIONS_ENABLED] = value
+        }
+    }
+
     fun getSearchDiscoverSectionEnabled(context: Context): Flow<Boolean> = context.settingsDataStore.data
         .map(::resolveSearchDiscoverSectionEnabled)
 
     suspend fun setSearchDiscoverSectionEnabled(context: Context, value: Boolean) {
         context.settingsDataStore.edit { preferences ->
             preferences[KEY_SEARCH_DISCOVER_SECTION_ENABLED] = value
-            preferences.remove(KEY_LEGACY_SEARCH_RECOMMEND_ENABLED)
         }
     }
     

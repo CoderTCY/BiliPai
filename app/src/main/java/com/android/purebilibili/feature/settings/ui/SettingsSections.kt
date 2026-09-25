@@ -222,6 +222,7 @@ internal data class SettingsRootCategoryActions(
     val onOpenLinksClick: () -> Unit,
     val onPrivacyModeChange: (Boolean) -> Unit,
     val onSearchDiscoverSectionChange: (Boolean) -> Unit,
+    val onSearchSuggestionsChange: (Boolean) -> Unit,
     val onPrivacyContentAuthenticationChange: (Boolean) -> Unit,
     val onCrashTrackingChange: (Boolean) -> Unit,
     val onAnalyticsChange: (Boolean) -> Unit,
@@ -243,6 +244,7 @@ internal data class SettingsRootCategoryActions(
 internal data class SettingsRootCategoryState(
     val privacyModeEnabled: Boolean,
     val searchDiscoverSectionEnabled: Boolean,
+    val searchSuggestionsEnabled: Boolean,
     val privacyContentAuthenticationEnabled: Boolean,
     val crashTrackingEnabled: Boolean,
     val analyticsEnabled: Boolean,
@@ -794,9 +796,11 @@ internal fun SettingsRootCategoryContent(
                         PrivacySection(
                             privacyModeEnabled = state.privacyModeEnabled,
                             searchDiscoverSectionEnabled = state.searchDiscoverSectionEnabled,
+                            searchSuggestionsEnabled = state.searchSuggestionsEnabled,
                             privacyContentAuthenticationEnabled = state.privacyContentAuthenticationEnabled,
                             onPrivacyModeChange = actions.onPrivacyModeChange,
                             onSearchDiscoverSectionChange = actions.onSearchDiscoverSectionChange,
+                            onSearchSuggestionsChange = actions.onSearchSuggestionsChange,
                             onPrivacyContentAuthenticationChange = actions.onPrivacyContentAuthenticationChange,
                             onPermissionClick = actions.onPermissionClick,
                             onMessageNotificationClick = actions.onMessageNotificationClick,
@@ -1023,9 +1027,11 @@ internal fun SettingsRootCategoryContent(
                         PrivacySection(
                             privacyModeEnabled = state.privacyModeEnabled,
                             searchDiscoverSectionEnabled = state.searchDiscoverSectionEnabled,
+                            searchSuggestionsEnabled = state.searchSuggestionsEnabled,
                             privacyContentAuthenticationEnabled = state.privacyContentAuthenticationEnabled,
                             onPrivacyModeChange = actions.onPrivacyModeChange,
                             onSearchDiscoverSectionChange = actions.onSearchDiscoverSectionChange,
+                            onSearchSuggestionsChange = actions.onSearchSuggestionsChange,
                             onPrivacyContentAuthenticationChange = actions.onPrivacyContentAuthenticationChange,
                             onPermissionClick = actions.onPermissionClick,
                             onMessageNotificationClick = actions.onMessageNotificationClick,
@@ -1517,9 +1523,11 @@ internal fun resolveHomeRefreshSliderSteps(): Int {
 fun PrivacySection(
     privacyModeEnabled: Boolean,
     searchDiscoverSectionEnabled: Boolean,
+    searchSuggestionsEnabled: Boolean,
     privacyContentAuthenticationEnabled: Boolean,
     onPrivacyModeChange: (Boolean) -> Unit,
     onSearchDiscoverSectionChange: (Boolean) -> Unit,
+    onSearchSuggestionsChange: (Boolean) -> Unit,
     onPrivacyContentAuthenticationChange: (Boolean) -> Unit,
     onPermissionClick: () -> Unit,
     onMessageNotificationClick: () -> Unit,
@@ -1559,9 +1567,18 @@ fun PrivacySection(
         SettingSwitchItem(
             icon = visibilityOffIcon,
             title = "搜索发现",
-            subtitle = "在搜索页显示哔哩哔哩提供的搜索推荐词",
+            subtitle = "在搜索页显示下方的搜索推荐栏",
             checked = searchDiscoverSectionEnabled,
             onCheckedChange = onSearchDiscoverSectionChange,
+            iconTint = siblingTints[0],
+        )
+        SettingsAdaptiveDivider()
+        SettingSwitchItem(
+            icon = visibilityOffIcon,
+            title = "个性化搜索推荐",
+            subtitle = "开启时使用官方搜索推荐；关闭后改用公开热搜词",
+            checked = searchSuggestionsEnabled,
+            onCheckedChange = onSearchSuggestionsChange,
             iconTint = siblingTints[0],
         )
         SettingsAdaptiveDivider()

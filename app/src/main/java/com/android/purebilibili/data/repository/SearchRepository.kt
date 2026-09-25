@@ -586,20 +586,25 @@ object SearchRepository {
         }
     }
 
-    // 与 PiliPlus 一致：搜索发现直接展示官方推荐列表，保持接口顺序与徽标。
-    suspend fun getSearchRecommend(): Result<List<HotItem>> = withContext(Dispatchers.IO) {
-        try {
-            val response = api.getSearchRecommend()
-            if (response.code != 0) {
-                return@withContext Result.failure(createSearchError(response.code, response.message))
+    // 保持官方推荐的原始顺序；关闭个性化时只使用公开热搜，不请求推荐接口。
+    suspend fun getSearchRecommend(personalizedEnabled: Boolean): Result<List<HotItem>> {
+        if (!personalizedEnabled) {
+            return getTrendingKeywords(limit = 12).map { bundle -> bundle.allItems.take(12) }
+        }
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = api.getSearchRecommend()
+                if (response.code != 0) {
+                    return@withContext Result.failure(createSearchError(response.code, response.message))
+                }
+                Result.success(response.data?.list.orEmpty().filter { item ->
+                    item.keyword.isNotBlank() || item.show_name.isNotBlank()
+                })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
             }
-            Result.success(response.data?.list.orEmpty().filter { item ->
-                item.keyword.isNotBlank() || item.show_name.isNotBlank()
-            })
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 
