@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -531,7 +532,7 @@ private fun SearchKeywordSectionHeader(
                 hasToggleHandler = onToggleEnabled != null,
             )
             if (showVisibilityToggle && onToggleEnabled != null) {
-                AppIconButton(onClick = onToggleEnabled, modifier = Modifier.size(40.dp)) {
+                AppIconButton(onClick = onToggleEnabled, modifier = Modifier.size(48.dp)) {
                     AppIcon(
                         imageVector = if (enabled) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
                         contentDescription = resolveSearchKeywordSectionToggleContentDescription(
@@ -559,7 +560,7 @@ private fun SearchDiscoverOriginalCell(
     val colors = resolveSearchDiscoverOriginalCellColors(MaterialTheme.colorScheme)
     AppSurface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
         shape = AppShapes.container(ContainerLevel.Field),
         color = colors.containerColor,
         tonalElevation = 0.dp,
@@ -568,16 +569,37 @@ private fun SearchDiscoverOriginalCell(
         Column(
             modifier = Modifier.padding(horizontal = AppSpacingTokens.Medium, vertical = AppSpacingTokens.Small)
         ) {
-            AppText(
-                text = item.title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = FontWeight.Medium,
-                    color = colors.titleColor
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AppText(
+                    text = item.title,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Medium,
+                        color = colors.titleColor
+                    )
                 )
-            )
-            if (!displaySubtitle.isNullOrBlank()) {
+                when {
+                    item.iconUrl != null -> {
+                        Spacer(modifier = Modifier.width(AppSpacingTokens.ExtraSmall))
+                        AsyncImage(
+                            model = item.iconUrl,
+                            contentDescription = null,
+                            modifier = Modifier.size(width = 20.dp, height = 15.dp)
+                        )
+                    }
+                    item.showLiveBadge -> {
+                        Spacer(modifier = Modifier.width(AppSpacingTokens.ExtraSmall))
+                        SearchKeywordBadge(
+                            text = "直播中",
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    }
+                }
+            }
+            if (item.iconUrl == null && !item.showLiveBadge && !displaySubtitle.isNullOrBlank()) {
                 AppText(
                     text = displaySubtitle,
                     maxLines = 1,

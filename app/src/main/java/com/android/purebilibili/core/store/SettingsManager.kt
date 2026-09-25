@@ -1374,6 +1374,8 @@ object SettingsManager {
     private val KEY_PLAYER_PROGRESS_PLACEMENT = intPreferencesKey("player_progress_placement")
     private val KEY_SEARCH_HOT_SECTION_ENABLED = booleanPreferencesKey("search_hot_section_enabled")
     private val KEY_SEARCH_DISCOVER_SECTION_ENABLED = booleanPreferencesKey("search_discover_section_enabled")
+    // 旧「搜索推荐词」开关的已存值在用户首次切换搜索发现时迁入当前开关。
+    private val KEY_LEGACY_SEARCH_RECOMMEND_ENABLED = booleanPreferencesKey("search_suggestions_enabled")
     //  [新增] 双击跳转秒数 (可分开设置快进和后退)
     private val KEY_DOUBLE_TAP_SEEK_ENABLED = booleanPreferencesKey("double_tap_seek_enabled")
     private val KEY_SEEK_FORWARD_SECONDS = intPreferencesKey("seek_forward_seconds")
@@ -3617,10 +3619,17 @@ object SettingsManager {
     }
 
     fun getSearchDiscoverSectionEnabled(context: Context): Flow<Boolean> = context.settingsDataStore.data
-        .map { preferences -> preferences[KEY_SEARCH_DISCOVER_SECTION_ENABLED] ?: true }
+        .map { preferences ->
+            preferences[KEY_SEARCH_DISCOVER_SECTION_ENABLED]
+                ?: preferences[KEY_LEGACY_SEARCH_RECOMMEND_ENABLED]
+                ?: true
+        }
 
     suspend fun setSearchDiscoverSectionEnabled(context: Context, value: Boolean) {
-        context.settingsDataStore.edit { preferences -> preferences[KEY_SEARCH_DISCOVER_SECTION_ENABLED] = value }
+        context.settingsDataStore.edit { preferences ->
+            preferences[KEY_SEARCH_DISCOVER_SECTION_ENABLED] = value
+            preferences.remove(KEY_LEGACY_SEARCH_RECOMMEND_ENABLED)
+        }
     }
     
     //  [新增] --- 底栏显示模式 (0=图标+文字, 1=仅图标, 2=仅文字) ---
@@ -6052,15 +6061,6 @@ object SettingsManager {
     private val KEY_PRIVACY_CONTENT_AUTHENTICATION_ENABLED =
         booleanPreferencesKey("privacy_content_authentication_enabled")
     
-    private val KEY_SEARCH_SUGGESTIONS_ENABLED = booleanPreferencesKey("search_suggestions_enabled")
-
-    fun getSearchSuggestionsEnabled(context: Context): Flow<Boolean> = context.settingsDataStore.data
-        .map { preferences -> preferences[KEY_SEARCH_SUGGESTIONS_ENABLED] ?: true }
-
-    suspend fun setSearchSuggestionsEnabled(context: Context, value: Boolean) {
-        context.settingsDataStore.edit { it[KEY_SEARCH_SUGGESTIONS_ENABLED] = value }
-    }
-
     // --- 不记录播放历史和搜索历史 ---
     fun getPrivacyModeEnabled(context: Context): Flow<Boolean> = context.settingsDataStore.data
         .map { preferences -> preferences[KEY_PRIVACY_MODE_ENABLED] ?: false }  // 默认关闭

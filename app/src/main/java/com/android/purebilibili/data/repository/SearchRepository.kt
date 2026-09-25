@@ -586,85 +586,21 @@ object SearchRepository {
         }
     }
 
-    //  获取搜索发现（优先最近搜索/关注 UP，再补官方推荐和热搜）
-    suspend fun getSearchRecommend(
-        historyKeywords: List<String>,
-        enablePersonalizedRecommend: Boolean = true
-    ): Result<List<HotItem>> = withContext(Dispatchers.IO) {
-        val fallbackKeywords = listOf("黑神话悟空", "原神", "初音未来", "JOJO", "罗翔说刑法", "何同学", "毕业季", "猫咪", "我的世界", "战鹰")
-        val historySuggestions = if (enablePersonalizedRecommend) {
-            try {
-                val lastKeyword = historyKeywords.firstOrNull()
-                if (!lastKeyword.isNullOrBlank()) {
-                    val response = api.getSearchSuggest(lastKeyword)
-                    response.result?.tag
-                        ?.mapNotNull { tag ->
-                            tag.term.ifBlank { tag.value.ifBlank { tag.name } }
-                                .replace(Regex("<.*?>"), "")
-                                .trim()
-                                .takeIf { it.isNotBlank() && it != lastKeyword }
-                        }
-                        ?.take(8)
-                        .orEmpty()
-                } else {
-                    emptyList()
-                }
-            } catch (e: Exception) {
-                emptyList()
+    // 与 PiliPlus 一致：搜索发现直接展示官方推荐列表，保持接口顺序与徽标。
+    suspend fun getSearchRecommend(): Result<List<HotItem>> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.getSearchRecommend()
+            if (response.code != 0) {
+                return@withContext Result.failure(createSearchError(response.code, response.message))
             }
-        } else {
-            emptyList()
-        }
-
-        val followedUpNames = if (enablePersonalizedRecommend) {
-            try {
-                val navResponse = navApi.getNavInfo()
-                val mid = navResponse.data?.mid ?: 0L
-                if (navResponse.data?.isLogin == true && mid > 0L) {
-                    navApi.getFollowings(mid, pn = 1, ps = 20)
-                        .data
-                        ?.list
-                        ?.mapNotNull { user -> user.uname.trim().takeIf { it.isNotBlank() } }
-                        .orEmpty()
-                } else {
-                    emptyList()
-                }
-            } catch (e: Exception) {
-                emptyList()
-            }
-        } else {
-            emptyList()
-        }
-
-        val officialItems = try {
-            val recommendResponse = api.getSearchRecommend()
-            if (recommendResponse.code == 0) {
-                val list = recommendResponse.data?.list
-                    ?.filter { item -> item.keyword.isNotBlank() || item.show_name.isNotBlank() }
-                    ?: emptyList()
-                if (!enablePersonalizedRecommend) {
-                    list.filter { it.recommend_reason.isBlank() }
-                } else {
-                    list
-                }
-            } else {
-                emptyList()
-            }
+            Result.success(response.data?.list.orEmpty().filter { item ->
+                item.keyword.isNotBlank() || item.show_name.isNotBlank()
+            })
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            emptyList()
+            Result.failure(e)
         }
-
-        val trendingItems = getTrendingKeywords(limit = 12).getOrNull()?.allItems?.shuffled()?.take(10).orEmpty()
-        val items = buildSearchRecommendItems(
-            historySuggestionKeywords = historySuggestions,
-            followedUpNames = followedUpNames,
-            officialItems = officialItems,
-            trendingItems = trendingItems,
-            fallbackKeywords = fallbackKeywords,
-            limit = 10
-        )
-
-        Result.success(items)
     }
 
     private suspend fun signWithWbi(params: Map<String, String>): Map<String, String> {

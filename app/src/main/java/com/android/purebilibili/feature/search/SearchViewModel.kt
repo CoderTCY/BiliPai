@@ -201,7 +201,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     private val searchDao = AppDatabase.getDatabase(application).searchHistoryDao()
     
     //  防抖任务
-    private var searchRecommendEnabled = true
+    private var discoverSectionEnabled = true
     private var suggestJob: Job? = null
     private var activeSearchJob: Job? = null
     private var activeLoadMoreJob: Job? = null
@@ -215,11 +215,11 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     init {
         loadHistory()
         viewModelScope.launch {
-            com.android.purebilibili.core.store.SettingsManager.getSearchSuggestionsEnabled(application)
+            com.android.purebilibili.core.store.SettingsManager.getSearchDiscoverSectionEnabled(application)
                 .collect { enabled ->
-                    val changed = (searchRecommendEnabled != enabled)
-                    searchRecommendEnabled = enabled
-                    if (changed && landingBootstrapStarted) {
+                    val wasEnabled = discoverSectionEnabled
+                    discoverSectionEnabled = enabled
+                    if (enabled && !wasEnabled && landingBootstrapStarted) {
                         refreshDiscoverInternal()
                     }
                 }
@@ -281,7 +281,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             launch { loadDefaultSearchHintInternal() }
             launch { refreshHotSearchInternal() }
-            launch { refreshDiscoverInternal() }
+            if (discoverSectionEnabled) launch { refreshDiscoverInternal() }
         }
     }
 
@@ -1222,6 +1222,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshDiscover() {
+        if (!discoverSectionEnabled) return
         if (!landingBootstrapStarted) {
             ensureLandingBootstrap()
             return
@@ -1253,19 +1254,13 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun refreshDiscoverInternal() {
-        val historyKeywords = _uiState.value.historyList.map { it.keyword }
         _uiState.update { it.copy(isRefreshingDiscoverList = true, discoverListError = null) }
-        val result = SearchRepository.getSearchRecommend(
-            historyKeywords = historyKeywords,
-            enablePersonalizedRecommend = searchRecommendEnabled
-        )
+        val result = SearchRepository.getSearchRecommend()
 
         result.onSuccess { list ->
             _uiState.update {
                 it.copy(
-                    discoverList = list
-                        .map { item -> item.toSearchKeywordUiModel() }
-                        .take(10),
+                    discoverList = list.map { item -> item.toSearchKeywordUiModel() },
                     isRefreshingDiscoverList = false,
                     discoverListError = null
                 )
@@ -1304,7 +1299,6 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             try {
                 searchDao.delete(history)
-                refreshDiscover()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -1317,7 +1311,6 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             try {
                 searchDao.clearAll()
-                refreshDiscover()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
