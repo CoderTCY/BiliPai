@@ -24,6 +24,9 @@ import com.android.purebilibili.core.ui.components.KeepScrollableTabSelectionVis
 import com.android.purebilibili.core.ui.components.liquidDockViewport
 import com.android.purebilibili.core.ui.common.verticalPriorityHorizontalPagerSwipe
 import com.android.purebilibili.navigation.animatePagerSelection
+import com.android.purebilibili.core.util.BilibiliNavigationTarget
+import com.android.purebilibili.navigation.SearchSubmitAction
+import com.android.purebilibili.navigation.resolveSearchSubmitActionWithRedirect
 
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -653,6 +656,7 @@ fun SearchScreen(
     onInitialKeywordConsumed: (String) -> Unit = {},
     onBack: () -> Unit,
     onOpenTrending: () -> Unit,
+    onNavigateSearchTarget: (BilibiliNavigationTarget) -> Boolean,
     onVideoClick: (String, Long, String) -> Unit,
     onWebClick: (String, String) -> Unit,
     onUpClick: (Long) -> Unit,  //  点击UP主跳转到空间
@@ -767,6 +771,7 @@ fun SearchScreen(
     }.collectAsStateWithLifecycle(initialValue = true)
     val displayedSearchHint = state.defaultSearchHint.takeIf { searchHintEnabled }.orEmpty()
     val scope = rememberCoroutineScope()
+    var submitJob by remember { mutableStateOf<Job?>(null) }
     val savedSearchFilterTabOrder by SettingsManager
         .getSearchFilterTabOrder(context)
         .collectAsStateWithLifecycle(
@@ -1050,6 +1055,21 @@ fun SearchScreen(
         searchFieldFocused = false
         autoFocusConsumed = true
     }
+    val submitSearch: (String) -> Unit = { keyword ->
+        submitJob?.cancel()
+        submitJob = scope.launch {
+            when (val action = resolveSearchSubmitActionWithRedirect(keyword)) {
+                SearchSubmitAction.Ignore -> Unit
+                is SearchSubmitAction.OpenSearch -> viewModel.search(action.keyword)
+                is SearchSubmitAction.OpenNativeTarget -> {
+                    viewModel.dismissSuggestions()
+                    if (!onNavigateSearchTarget(action.target)) viewModel.search(keyword)
+                }
+            }
+        }
+        dismissSearchKeyboardAndFocus()
+    }
+
 
     val handleSearchBack = {
         when (
@@ -1261,13 +1281,15 @@ fun SearchScreen(
                                             SearchTopBar(
                                                 query = state.query,
                                                 onBack = handleSearchBack,
-                                                onQueryChange = { viewModel.onQueryChange(it) },
-                                                onSearch = {
-                                                    autoFocusConsumed = true
-                                                    viewModel.search(it)
-                                                    dismissSearchKeyboardAndFocus()
+                                                onQueryChange = {
+                                                    submitJob?.cancel()
+                                                    viewModel.onQueryChange(it)
                                                 },
-                                                onClearQuery = { viewModel.onQueryChange("") },
+                                                onSearch = submitSearch,
+                                                onClearQuery = {
+                                                    submitJob?.cancel()
+                                                    viewModel.onQueryChange("")
+                                                },
                                                 onFocusChanged = { focused ->
                                                     searchFieldFocused = focused
                                                     if (focused) {
@@ -2337,11 +2359,7 @@ fun SearchScreen(
                     onRefreshHot = viewModel::refreshHotSearch,
                     onOpenTrending = onOpenTrending,
                     onRefreshDiscover = viewModel::refreshDiscover,
-                    onKeywordClick = {
-                        autoFocusConsumed = true
-                        viewModel.search(it)
-                        dismissSearchKeyboardAndFocus()
-                    },
+                    onKeywordClick = submitSearch,
                     onClearHistory = viewModel::clearHistory,
                     onDeleteHistory = viewModel::deleteHistory,
                     modifier = Modifier
@@ -2367,13 +2385,15 @@ fun SearchScreen(
             SearchTopBar(
                 query = state.query,
                 onBack = handleSearchBack,
-                onQueryChange = { viewModel.onQueryChange(it) },
-                onSearch = {
-                    autoFocusConsumed = true
-                    viewModel.search(it)
-                    dismissSearchKeyboardAndFocus()
+                onQueryChange = {
+                    submitJob?.cancel()
+                    viewModel.onQueryChange(it)
                 },
-                onClearQuery = { viewModel.onQueryChange("") },
+                onSearch = submitSearch,
+                onClearQuery = {
+                    submitJob?.cancel()
+                    viewModel.onQueryChange("")
+                },
                 onFocusChanged = { focused ->
                     searchFieldFocused = focused
                     if (focused) {
@@ -2453,11 +2473,7 @@ fun SearchScreen(
             if (state.suggestions.isNotEmpty() && state.query.isNotEmpty() && !state.showResults) {
                 SearchSuggestionDropdown(
                     suggestions = state.suggestions,
-                    onSuggestionClick = { suggestion ->
-                        autoFocusConsumed = true
-                        viewModel.search(suggestion)
-                        dismissSearchKeyboardAndFocus()
-                    },
+                    onSuggestionClick = submitSearch,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = contentTopPadding + 6.dp)
