@@ -87,6 +87,8 @@ internal fun BottomBarFloatingSegmentedControl(
     liquidGlassMeasurementLabels: List<String>? = null,
     liquidGlassAnimateLabelWidthChanges: Boolean = false,
     isPagerDraggingProvider: (() -> Boolean)? = null,
+    pagerTargetPositionProvider: (() -> Float)? = null,
+    isPagerNavigatingProvider: (() -> Boolean)? = null,
     itemContent: (@Composable ColumnScope.(index: Int, label: String, selected: Boolean) -> Unit)? = null,
 ) {
     if (items.isEmpty()) return
@@ -360,6 +362,8 @@ internal fun BottomBarFloatingSegmentedControl(
             onIndicatorDragStateChanged = onIndicatorDragStateChanged,
             externalPagerMotionEffectsEnabled = externalPagerMotionEffectsEnabled,
             isPagerDraggingProvider = isPagerDraggingProvider,
+            pagerTargetPositionProvider = pagerTargetPositionProvider,
+            isPagerNavigatingProvider = isPagerNavigatingProvider,
             liquidGlassTuning = liquidGlassTuning,
             drawShell = scrollState == null,
             onDockTranslationProviderChanged = if (scrollState != null) {

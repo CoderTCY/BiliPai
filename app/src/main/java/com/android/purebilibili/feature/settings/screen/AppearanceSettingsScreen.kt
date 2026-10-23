@@ -122,8 +122,9 @@ fun AppearanceSettingsScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val homeConfiguration = rememberSettingsHomeConfiguration()
     val effectiveLiquidGlassEnabled = resolveHomeChromeLiquidGlassEnabled(
-        userEnabled = state.androidNativeLiquidGlassEnabled,
+        userEnabled = homeConfiguration.androidNativeLiquidGlassEnabled,
         sdkInt = Build.VERSION.SDK_INT,
     )
     val coroutineScope = rememberCoroutineScope()
@@ -246,14 +247,15 @@ fun AppearanceSettingsContent(
     onAppLanguageChange: (AppLanguage) -> Unit,
     onAnimationClick: () -> Unit = {},
 ) {
-    val liquidControlsUseThemeColor by SettingsManager.getLiquidControlsUseThemeColor(context)
+    val homeConfiguration = rememberSettingsHomeConfiguration()
+    val themeConfiguration = rememberSettingsThemeConfiguration()
+    val liquidControlsUseThemeColor by remember(context) { SettingsManager.getLiquidControlsUseThemeColor(context) }
         .collectAsStateWithLifecycle(initialValue = false)
     val activity = context as? android.app.Activity
     val supportedDisplayModes = remember(activity) {
         activity?.supportedAppDisplayModes().orEmpty()
     }
-    val storedScreenDisplayModeId by SettingsManager
-        .getScreenDisplayModeId(context)
+    val storedScreenDisplayModeId by remember(context) { SettingsManager.getScreenDisplayModeId(context) }
         .collectAsStateWithLifecycle(initialValue = SYSTEM_AUTO_DISPLAY_MODE_ID)
     val selectedScreenDisplayModeId = remember(storedScreenDisplayModeId, supportedDisplayModes) {
         normalizePreferredDisplayModeId(
@@ -271,12 +273,8 @@ fun AppearanceSettingsContent(
         .firstOrNull { option -> option.value == selectedScreenDisplayModeId }
         ?.label
         ?: context.getString(R.string.appearance_display_follow_system)
-    val singleChoicePresentation by SettingsManager
-        .getSingleChoicePresentation(context)
-        .collectAsStateWithLifecycle(AppSingleChoicePresentation.WINDOW_POPUP)
-    val pinchToChangeGridColumnsEnabled by SettingsManager
-        .getPinchToChangeGridColumnsEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = true)
+    val singleChoicePresentation = themeConfiguration.singleChoicePresentation
+    val pinchToChangeGridColumnsEnabled = homeConfiguration.pinchToChangeGridColumnsEnabled
     val appListItemStyleOptions = remember(context) {
         resolveAppListItemStyleOptions().map { option ->
             option.copy(label = context.getString(when (option.value) {
@@ -446,34 +444,26 @@ fun AppearanceSettingsContent(
         navigationBarsBottom = navigationBarBottomPadding,
         expandableSectionEnabled = true
     )
-    val compactVideoStatsOnCover by SettingsManager
-        .getCompactVideoStatsOnCover(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val backToTopButtonEnabled by BackToTopSettingsStore
-        .isEnabled(context)
+    val compactVideoStatsOnCover = homeConfiguration.compactVideoStatsOnCover
+    val backToTopButtonEnabled by remember(context) { BackToTopSettingsStore.isEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_BACK_TO_TOP_BUTTON_ENABLED)
     val backToTopCustomOffset by remember(context) {
         BackToTopSettingsStore.getCustomOffsetDp(context)
     }.collectAsStateWithLifecycle(initialValue = BackToTopSettingsStore.getCachedOffsetDp())
     val hasCustomBackToTopOffset = backToTopCustomOffset.first != 0f || backToTopCustomOffset.second != 0f
-    val homeWallpaperSelection by SettingsManager.getHomeWallpaperSelection(context)
+    val homeWallpaperSelection by remember(context) { SettingsManager.getHomeWallpaperSelection(context) }
         .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.home.HomeWallpaperSelection())
     val dedicatedHomeWallpaperUri = homeWallpaperSelection.uri
     val wallpaperPreviewIsTablet = com.android.purebilibili.core.util.LocalWindowSizeClass.current.isTablet
-    val splashWallpaperFallbackUri by SettingsManager
-        .getSplashWallpaperUri(context)
+    val splashWallpaperFallbackUri by remember(context) { SettingsManager.getSplashWallpaperUri(context) }
         .collectAsStateWithLifecycle(initialValue = "")
     val resolvedHomeWallpaperUri = remember(dedicatedHomeWallpaperUri, splashWallpaperFallbackUri) {
         dedicatedHomeWallpaperUri.ifBlank { splashWallpaperFallbackUri }.trim()
     }
     val homeWallpaperFollowsSplash = dedicatedHomeWallpaperUri.isBlank() && splashWallpaperFallbackUri.isNotBlank()
     val homeWallpaperIsStatic = com.android.purebilibili.core.ui.wallpaper.rememberIsStaticWallpaper(resolvedHomeWallpaperUri)
-    val homeWallpaperEffectMode by SettingsManager
-        .getHomeWallpaperEffectMode(context)
-        .collectAsStateWithLifecycle(initialValue = HomeWallpaperEffectMode.SOFT_BLUR)
-    val homeWallpaperEffectScope by SettingsManager
-        .getHomeWallpaperEffectScope(context)
-        .collectAsStateWithLifecycle(initialValue = HomeWallpaperEffectScope.HOME_ONLY)
+    val homeWallpaperEffectMode = homeConfiguration.homeWallpaperEffectMode
+    val homeWallpaperEffectScope = homeConfiguration.homeWallpaperEffectScope
     val homeWallpaperEffectOptions = remember {
         listOf(
             AppSegmentOption(HomeWallpaperEffectMode.OFF, context.getString(R.string.appearance_wallpaper_effect_off)),
@@ -488,12 +478,8 @@ fun AppearanceSettingsContent(
             AppSegmentOption(HomeWallpaperEffectScope.GLOBAL, context.getString(R.string.appearance_wallpaper_scope_global))
         )
     }
-    val showPgcTimeline by SettingsManager
-        .getShowPgcTimeline(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val commonListHeaderCollapseMode by SettingsManager
-        .getCommonListHeaderCollapseMode(context)
-        .collectAsStateWithLifecycle(initialValue = CommonListHeaderCollapseMode.SHOW_AT_TOP_ONLY)
+    val showPgcTimeline = homeConfiguration.showPgcTimeline
+    val commonListHeaderCollapseMode = homeConfiguration.commonListHeaderCollapseMode
     val commonListHeaderCollapseOptions = remember {
         listOf(
             AppSegmentOption(CommonListHeaderCollapseMode.ALWAYS_VISIBLE, context.getString(R.string.appearance_header_always)),
@@ -501,48 +487,20 @@ fun AppearanceSettingsContent(
             AppSegmentOption(CommonListHeaderCollapseMode.SHOW_AT_TOP_ONLY, context.getString(R.string.appearance_header_top_only))
         )
     }
-    val homeUpBadgesVisible by SettingsManager
-        .getHomeUpBadgesVisible(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val homeUpAvatarsVisible by SettingsManager
-        .getHomeUpAvatarsVisible(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val homeRefreshTipVisible by SettingsManager
-        .getHomeRefreshTipVisible(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val homePublishTimeVisible by SettingsManager
-        .getHomePublishTimeVisible(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val homeRefreshUndoVisible by SettingsManager
-        .getHomeRefreshUndoVisible(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val fullVideoCardContentVisible by SettingsManager
-        .getFullVideoCardContentVisible(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val videoCardLongPressActionEnabled by SettingsManager
-        .getVideoCardLongPressActionEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val homeCardDynamicTintEnabled by SettingsManager
-        .getHomeCardDynamicTintEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val homeCardFrostedGlassEnabled by SettingsManager
-        .getHomeCardFrostedGlassEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val homeDurationStyle by SettingsManager
-        .getHomeDurationStyle(context)
-        .collectAsStateWithLifecycle(initialValue = HomeDurationStyle.OUTSIDE_COVER)
-    val homeFeedCardStyle by SettingsManager
-        .getHomeFeedCardStyle(context)
-        .collectAsStateWithLifecycle(initialValue = HomeFeedCardStyle.BILIPAI)
-    val homeHeroCarouselEnabled by SettingsManager
-        .getHomeHeroCarouselEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val homeHeroCarouselAutoplayEnabled by SettingsManager
-        .getHomeHeroCarouselAutoplayEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val storedThemeRoleOverrides by SettingsManager
-        .getThemeRoleOverrides(context)
-        .collectAsStateWithLifecycle(initialValue = ThemeRoleOverrides())
+    val homeUpBadgesVisible = homeConfiguration.showHomeUpBadges
+    val homeUpAvatarsVisible = homeConfiguration.showHomeUpAvatars
+    val homeRefreshTipVisible = homeConfiguration.homeRefreshTipVisible
+    val homePublishTimeVisible = homeConfiguration.showHomePublishTime
+    val homeRefreshUndoVisible = homeConfiguration.homeRefreshUndoVisible
+    val fullVideoCardContentVisible = homeConfiguration.showFullVideoCardContent
+    val videoCardLongPressActionEnabled = homeConfiguration.videoCardLongPressActionEnabled
+    val homeCardDynamicTintEnabled = homeConfiguration.homeCardDynamicTintEnabled
+    val homeCardFrostedGlassEnabled = homeConfiguration.homeCardFrostedGlassEnabled
+    val homeDurationStyle = homeConfiguration.homeDurationStyle
+    val homeFeedCardStyle = homeConfiguration.homeFeedCardStyle
+    val homeHeroCarouselEnabled = homeConfiguration.homeHeroCarouselEnabled
+    val homeHeroCarouselAutoplayEnabled = homeConfiguration.homeHeroCarouselAutoplayEnabled
+    val storedThemeRoleOverrides = themeConfiguration.themeRoleOverrides
     val baseThemeRoleOverrides = LocalBaseThemeRoleOverrides.current
     val themeRoleOverrides = remember(storedThemeRoleOverrides, baseThemeRoleOverrides, state.md3CustomColorHex) {
         if (storedThemeRoleOverrides.enabled) {
@@ -551,19 +509,16 @@ fun AppearanceSettingsContent(
             )
         } else storedThemeRoleOverrides
     }
-    val showOnlineCount by SettingsManager
-        .getShowOnlineCount(context)
+    val showOnlineCount by remember(context) { SettingsManager.getShowCardOnlineCount(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val showProfileEditButton by SettingsManager
-        .getShowProfileEditButton(context)
+    val showProfileEditButton by remember(context) { SettingsManager.getShowProfileEditButton(context) }
         .collectAsStateWithLifecycle(initialValue = false)
     val isLiquidGlassAvailable = shouldAllowHomeChromeLiquidGlass(Build.VERSION.SDK_INT)
     val effectiveLiquidGlassEnabled = resolveHomeChromeLiquidGlassEnabled(
-        userEnabled = state.androidNativeLiquidGlassEnabled,
+        userEnabled = homeConfiguration.androidNativeLiquidGlassEnabled,
         sdkInt = Build.VERSION.SDK_INT,
     )
-    val wallpaperPreviewOverrides by SettingsManager.getWallpaperPaletteOverrides(context)
-        .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.WallpaperPaletteOverrides())
+    val wallpaperPreviewOverrides = themeConfiguration.wallpaperPaletteOverrides
     val palettePreviewConfiguration = ThemePreviewConfiguration(
         uiStyle = LocalAppUiStyle.current,
         source = state.md3ColorSource,
@@ -1388,13 +1343,14 @@ fun AppearanceSettingsContent(
         item(key = "appearance_splash_icon") {
             Box(modifier = Modifier.entrance()) {
                 AppPreferenceGroup {
-                    val isSplashEnabled by com.android.purebilibili.core.store.SettingsManager.isSplashEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-                    val splashRandomEnabled by com.android.purebilibili.core.store.SettingsManager.getSplashRandomEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-                    val splashRandomPoolUris by com.android.purebilibili.core.store.SettingsManager.getSplashRandomPoolUris(context).collectAsStateWithLifecycle(initialValue = emptyList())
-                    val splashIconAnimationEnabled by com.android.purebilibili.core.store.SettingsManager.getSplashIconAnimationEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-                    val startupAnimationStyle by SettingsManager.getStartupAnimationStyle(context)
+                    val isSplashEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.isSplashEnabled(context) }.collectAsStateWithLifecycle(initialValue = false)
+                    val splashRandomEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getSplashRandomEnabled(context) }.collectAsStateWithLifecycle(initialValue = false)
+                    val splashRandomPoolUris by remember(context) { com.android.purebilibili.core.store.SettingsManager.getSplashRandomPoolUris(context) }.collectAsStateWithLifecycle(initialValue = emptyList())
+                    val splashIconAnimationEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getSplashIconAnimationEnabled(context) }.collectAsStateWithLifecycle(initialValue = true)
+                    val startupAnimationStyle by remember(context) { SettingsManager.getStartupAnimationStyle(context) }
                         .collectAsStateWithLifecycle(initialValue = SettingsManager.getStartupAnimationStyleSync(context))
-                    val splashWallpaperUri by com.android.purebilibili.core.store.SettingsManager.getSplashWallpaperUri(context).collectAsStateWithLifecycle(initialValue = null)
+                    // 复用页面已订阅的开屏壁纸，列表项回收后不重新订阅和回退占位值。
+                    val splashWallpaperUri = splashWallpaperFallbackUri
                     val hasSplashWallpaper = !splashWallpaperUri.isNullOrBlank()
                     val splashRandomPoolPreview = remember(splashRandomPoolUris) {
                         resolveSplashRandomPoolPreviewState(poolUris = splashRandomPoolUris)
@@ -1952,7 +1908,7 @@ fun AppearanceSettingsContent(
                                 checked = showOnlineCount,
                                 onCheckedChange = {
                                     scope.launch {
-                                        SettingsManager.setShowOnlineCount(context, it)
+                                        SettingsManager.setShowCardOnlineCount(context, it)
                                     }
                                 },
                                 iconTint = AppContentColors.secondaryText()

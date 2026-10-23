@@ -18,7 +18,7 @@ import com.android.purebilibili.core.ui.AppShapes
 import com.android.purebilibili.core.ui.ContainerLevel
 import androidx.compose.ui.input.pointer.pointerInput // [New]
 import androidx.compose.ui.zIndex // [New]
-import androidx.compose.ui.draw.scale // [New]
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.animateFloatAsState // [New]
 import androidx.compose.animation.core.snap // [New]
 import androidx.compose.animation.core.spring // [New]
@@ -67,6 +67,7 @@ import com.android.purebilibili.core.ui.components.*
 import com.android.purebilibili.core.ui.animation.EntranceGroup
 import com.android.purebilibili.core.ui.animation.entrance
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
  *  底栏项目配置
@@ -142,12 +143,10 @@ internal fun resolveAllTopTabs(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BottomBarSettingsScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: SettingsViewModel = viewModel(),
 ) {
-    val context = LocalContext.current
-    val androidLiquidGlassEnabled by SettingsManager
-        .getAndroidNativeLiquidGlassEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
+    val androidLiquidGlassEnabled = rememberSettingsHomeConfiguration().androidNativeLiquidGlassEnabled
     val screenTitle = stringResource(R.string.bottom_bar_management_title)
     val backLabel = stringResource(R.string.common_back)
     val bottomContentPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -160,14 +159,15 @@ fun BottomBarSettingsScreen(
         scrollHost = SettingsPageScrollHost.External,
     ) {
         CompositionLocalProvider(LocalSettingsLiquidGlassEnabled provides androidLiquidGlassEnabled) {
-            BottomBarSettingsContent()
+            BottomBarSettingsContent(viewModel = viewModel)
         }
     }
 }
 
 @Composable
 fun BottomBarSettingsContent(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: SettingsViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     val iconFamily = rememberAppSemanticVisualPolicy().effectiveIconFamily
@@ -202,75 +202,52 @@ fun BottomBarSettingsContent(
             SettingsSearchFocusIds.BOTTOM_BAR_AVAILABLE to "navigation_available_title",
         ),
     )
+    val homeConfiguration = rememberSettingsHomeConfiguration()
+    val navigationConfiguration = rememberSettingsNavigationConfiguration()
     val allBottomBarTabs = resolveAllBottomBarTabs(iconFamily)
     val allTopTabs = resolveAllTopTabs(iconFamily)
 
 
     // 读取当前配置
-    val order by SettingsManager.getBottomBarOrder(context).collectAsStateWithLifecycle(initialValue = listOf("HOME", "DYNAMIC", "HISTORY", "LISTEN_VIDEO", "PROFILE"))
-    val visibleTabs by SettingsManager.getBottomBarVisibleTabs(context).collectAsStateWithLifecycle(initialValue = setOf("HOME", "DYNAMIC", "HISTORY", "LISTEN_VIDEO", "PROFILE"))
-    val topTabOrder by SettingsManager.getTopTabOrder(context).collectAsStateWithLifecycle(initialValue = defaultTopTabIds)
-    val topTabVisible by SettingsManager.getTopTabVisibleTabs(context).collectAsStateWithLifecycle(initialValue = defaultTopTabIds.toSet())
-    val searchFilterTabOrder by SettingsManager.getSearchFilterTabOrder(context)
+    val order = navigationConfiguration.bottomBarOrder
+    val visibleTabs = navigationConfiguration.bottomBarVisibleTabs
+    val topTabOrder by remember(context) { SettingsManager.getTopTabOrder(context) }.collectAsStateWithLifecycle(initialValue = defaultTopTabIds)
+    val topTabVisible by remember(context) { SettingsManager.getTopTabVisibleTabs(context) }.collectAsStateWithLifecycle(initialValue = defaultTopTabIds.toSet())
+    val searchFilterTabOrder by remember(context) { SettingsManager.getSearchFilterTabOrder(context) }
         .collectAsStateWithLifecycle(initialValue = defaultSearchFilterTabOrder.map { it.value })
-    val hideTopTabs by SettingsManager.getHideTopTabs(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val topTabLabelMode by SettingsManager.getTopTabLabelMode(context)
-        .collectAsStateWithLifecycle(initialValue = SettingsManager.TopTabLabelMode.TEXT_ONLY)
-    val bottomBarLabelMode by SettingsManager.getBottomBarLabelMode(context)
-        .collectAsStateWithLifecycle(initialValue = 0)
-    val homeTopLayoutOrder by SettingsManager.getHomeTopLayoutOrder(context)
-        .collectAsStateWithLifecycle(initialValue = HomeTopLayoutOrder.SEARCH_THEN_TABS)
-    val homeHeaderCollapseMode by SettingsManager.getHomeHeaderCollapseMode(context)
-        .collectAsStateWithLifecycle(initialValue = HomeHeaderCollapseMode.BOTH)
+    val hideTopTabs = homeConfiguration.hideTopTabs
+    val topTabLabelMode = homeConfiguration.topTabLabelMode
+    val bottomBarLabelMode = homeConfiguration.bottomBarLabelMode
+    val homeTopLayoutOrder = homeConfiguration.homeTopLayoutOrder
+    val homeHeaderCollapseMode = homeConfiguration.homeHeaderCollapseMode
 
-    val homeTopRightAction by SettingsManager.getHomeTopRightAction(context)
-        .collectAsStateWithLifecycle(initialValue = HomeTopRightAction.SETTINGS)
-    val isBottomBarFloating by SettingsManager.getBottomBarFloating(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val navigationIconCrossScaleEnabled by SettingsManager
-        .getNavigationIconCrossScaleEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val bottomBarSearchEnabled by SettingsManager.getBottomBarSearchEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val keepHomeTopSearch by SettingsManager.getKeepHomeTopSearchWithBottomSearch(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val bottomBarScrollCompactEnabled by SettingsManager.getBottomBarScrollCompactEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val linkedDockMergeOnScrollEnabled by SettingsManager.getLinkedDockMergeOnScrollEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val listScopedSearchEnabled by SettingsManager.getListScopedSearchEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
+    val homeTopRightAction = homeConfiguration.homeTopRightAction
+    val isBottomBarFloating = homeConfiguration.isBottomBarFloating
+    val navigationIconCrossScaleEnabled = homeConfiguration.navigationIconCrossScaleEnabled
+    val bottomBarSearchEnabled = homeConfiguration.isBottomBarSearchEnabled
+    val keepHomeTopSearch = homeConfiguration.keepHomeTopSearchWithBottomSearch
+    val bottomBarScrollCompactEnabled = homeConfiguration.bottomBarScrollCompactEnabled
+    val linkedDockMergeOnScrollEnabled = homeConfiguration.linkedDockMergeOnScrollEnabled
+    val listScopedSearchEnabled = homeConfiguration.listScopedSearchEnabled
     val isLargeScreenCapable = windowSizeClass.isTabletDevice ||
         displayContext.isKnownFoldableDevice
-    val tabletUseSidebar by SettingsManager.getTabletUseSidebar(context)
-        .collectAsStateWithLifecycle(initialValue = isLargeScreenCapable)
-    val sidebarAccountSwitcherEnabled by SettingsManager.getSidebarAccountSwitcherEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = true)
+    val tabletUseSidebar = navigationConfiguration.tabletUseSidebar
+    val sidebarAccountSwitcherEnabled = navigationConfiguration.sidebarAccountSwitcherEnabled
 
-    // 可编辑的本地状态
-    var localOrder by remember(order) { mutableStateOf(order) }
-    var localVisibleTabs by remember(visibleTabs) { mutableStateOf(visibleTabs) }
-    var localTopTabOrder by remember(topTabOrder) {
-        mutableStateOf(
-            (topTabOrder + allTopTabs.map { it.id })
-                .distinct()
-                .filter { id -> allTopTabs.any { it.id == id } }
-        )
-    }
-    var localTopTabVisible by remember(topTabVisible, topTabOrder) {
-        mutableStateOf(
-            // 老配置可能超过上限：按用户顺序（含默认补全）裁剪到 SettingsManager.MAX_TOP_TABS
-            (topTabOrder + allTopTabs.map { it.id })
-                .distinct()
-                .filter { id -> topTabVisible.any { it == id } && allTopTabs.any { it.id == id } }
-                .take(SettingsManager.MAX_TOP_TABS)
-                .toSet()
-        )
-    }
-    var localSearchFilterTabOrder by remember(searchFilterTabOrder) {
-        mutableStateOf(resolveSearchFilterTabs(searchFilterTabOrder))
-    }
+    // 未编辑时接收首次加载；开始编辑后不让旧保存回传重置草稿。
+    val storedTopTabOrder = (topTabOrder + allTopTabs.map { it.id })
+        .distinct()
+        .filter { id -> allTopTabs.any { it.id == id } }
+    // 老配置可能超过上限：沿用原有顺序补全与可见项裁剪规则。
+    val storedTopTabVisible = storedTopTabOrder
+        .filter { it in topTabVisible }
+        .take(SettingsManager.MAX_TOP_TABS)
+        .toSet()
+    var localOrder by rememberSettingsEditState(order)
+    var localVisibleTabs by rememberSettingsEditState(visibleTabs)
+    var localTopTabOrder by rememberSettingsEditState(storedTopTabOrder)
+    var localTopTabVisible by rememberSettingsEditState(storedTopTabVisible)
+    var localSearchFilterTabOrder by rememberSettingsEditState(resolveSearchFilterTabs(searchFilterTabOrder))
 
     // [新增] 监听顺序变化并保存
     fun onOrderChanged(fromIndex: Int, toIndex: Int) {
@@ -293,23 +270,18 @@ fun BottomBarSettingsContent(
     }
 
     //  [新增] 读取项目颜色配置
-    val itemColors by SettingsManager.getBottomBarItemColors(context).collectAsStateWithLifecycle(initialValue = emptyMap())
-    val itemLabels by SettingsManager.getBottomBarItemLabels(context)
-        .collectAsStateWithLifecycle(initialValue = emptyMap())
+    val itemColors = navigationConfiguration.bottomBarItemColors
+    val itemLabels = navigationConfiguration.bottomBarItemLabels
+
+    val visibilityMode = navigationConfiguration.savedBottomBarVisibilityMode
 
     // 保存配置
     fun saveConfig() {
-        scope.launch {
-            SettingsManager.setBottomBarOrder(context, localOrder)
-            SettingsManager.setBottomBarVisibleTabs(context, localVisibleTabs)
-        }
+        viewModel.saveBottomBarConfiguration(localOrder, localVisibleTabs)
     }
 
     fun saveTopTabConfig() {
-        scope.launch {
-            SettingsManager.setTopTabOrder(context, localTopTabOrder)
-            SettingsManager.setTopTabVisibleTabs(context, localTopTabVisible)
-        }
+        viewModel.saveTopTabConfiguration(localTopTabOrder, localTopTabVisible)
     }
 
     fun moveTopTab(tabId: String, direction: Int) {
@@ -332,12 +304,7 @@ fun BottomBarSettingsContent(
     }
 
     fun saveSearchFilterTabOrder() {
-        scope.launch {
-            SettingsManager.setSearchFilterTabOrder(
-                context,
-                localSearchFilterTabOrder.map { it.value }
-            )
-        }
+        viewModel.saveSearchTabOrder(localSearchFilterTabOrder.map { it.value })
     }
 
     fun moveSearchFilterTab(type: SearchType, direction: Int) {
@@ -502,7 +469,6 @@ fun BottomBarSettingsContent(
             item(key = "navigation_display") {
                 Box(modifier = Modifier.entrance()) {
                     AppPreferenceGroup {
-                        val visibilityMode by SettingsManager.getBottomBarVisibilityMode(context).collectAsStateWithLifecycle(initialValue = SettingsManager.BottomBarVisibilityMode.ALWAYS_VISIBLE)
                         SettingsItemAnchor("navigation.visibility_mode") {
                             SettingsSingleChoicePreference(
                                 icon = com.android.purebilibili.feature.settings.rememberMaterialSymbol(com.android.purebilibili.R.drawable.ms_visibility_24),
@@ -1105,7 +1071,10 @@ private fun BottomBarPreview(
                             .width(itemWidth)
                             .offset { IntOffset(x = animatedX.roundToPx(), y = 0) }
                             .zIndex(zIndex)
-                            .scale(scale)
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                            }
                             // 移除单独的 pointerInput
                     ) {
                         val showIcon = labelMode != 2

@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -166,9 +167,11 @@ internal fun StoryVideoCard(
     val premiumBadgeLabel = remember(video.rights) {
         resolveVideoPremiumBadgeLabel(video.rights)
     }
+    var cardVisibleInWindow by remember(video.bvid, video.cid) { mutableStateOf(false) }
     val onlineCount = rememberVideoCardOnlineCount(
         video = video,
-        showOnlineCount = showOnlineCount
+        showOnlineCount = showOnlineCount,
+        isVisibleInWindow = cardVisibleInWindow,
     )
     val useLowQualityCover = isDataSaverActive && preferLowQualityCover
     val coverSource = remember(video.bvid, video.id, video.cid, video.title, video.pic, useLowQualityCover, coverRequestSpec) {
@@ -328,6 +331,9 @@ internal fun StoryVideoCard(
 
     Column(
         modifier = modifier
+            .onVisibilityChanged(minFractionVisible = 0.01f, minDurationMs = 0L) {
+                cardVisibleInWindow = it
+            }
             .fillMaxWidth()
             .adaptiveCardHoverEffect(shape = cardShellShape)
             .videoCardShellSharedBoundsOrEmpty(

@@ -50,6 +50,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
@@ -816,7 +817,8 @@ internal fun ElegantVideoCard(
             )
         )
     }
-    val coverReturnPrefetchAllowed = LocalPageImageLoadingAllowed.current
+    var cardVisibleInWindow by remember(video.bvid, video.cid) { mutableStateOf(false) }
+    val coverReturnPrefetchAllowed = LocalPageImageLoadingAllowed.current && cardVisibleInWindow
     LaunchedEffect(video.bvid, coverUrl, coverCacheKey, coverRequestSpec, coverReturnPrefetchAllowed) {
         if (!coverReturnPrefetchAllowed) return@LaunchedEffect
         HomeCoverReturnPrefetchRegistry.onCardVisible(
@@ -831,7 +833,8 @@ internal fun ElegantVideoCard(
     }
     val onlineCount = rememberVideoCardOnlineCount(
         video = video,
-        showOnlineCount = showOnlineCount
+        showOnlineCount = showOnlineCount,
+        isVisibleInWindow = cardVisibleInWindow,
     )
     val publishTimeRowText: String
     val emphasizePublishTime: Boolean
@@ -992,6 +995,7 @@ internal fun ElegantVideoCard(
                         .resolveVideoCardSourceInfoPresentation(
                             publishTimeText = publishTimeRowText,
                             showStatsInInfo = scrollLitePolicy.showSecondaryStatsRow,
+                            ownerBeforeStats = true,
                             showDurationInInfo = showDurationOutside,
                             useTintedInfoSurface = useCardEffectSurface,
                             showOverflowMenu = hasOverflowMenu,
@@ -1060,6 +1064,9 @@ internal fun ElegantVideoCard(
         propagateMinConstraints = true,
         modifier = modifier
             .fillMaxWidth()
+            .onVisibilityChanged(minFractionVisible = 0.01f, minDurationMs = 0L) {
+                cardVisibleInWindow = it
+            }
             .adaptiveCardHoverEffect(shape = adaptiveHoverShape)
             // 进场动画：挂载门控已含滚动/返回/切分类；与过渡并存时仅淡入不改几何
             .animateEnter(
@@ -1070,7 +1077,7 @@ internal fun ElegantVideoCard(
                 coordinateWithSharedTransition = coordinateEnterWithTransition
             )
             //  [新增] 记录卡片位置（仅存引用，boundsInRoot() 在交互时惰性计算）
-            .onGloballyPositioned { coordinates ->
+            .onPlaced { coordinates ->
                 cardCoordsRef.value = coordinates
             }
     ) {
@@ -1259,13 +1266,17 @@ internal fun ElegantVideoCard(
                 .testTag("home_video_cover")
                 .aspectRatio(coverAspectRatio)
                 .clip(coverShape)
-                .onGloballyPositioned { coordinates ->
-                    coverCoordsRef.value = coordinates
-                    val rootTop = coordinates.boundsInRoot().top
-                    if (screenMetrics.heightPx > 0f) {
-                        cardYFraction.floatValue = (rootTop / screenMetrics.heightPx).coerceIn(0f, 1f)
-                    }
-                }
+                .onPlaced { coordinates -> coverCoordsRef.value = coordinates }
+                .then(
+                    // Only wallpaper backing uses the scrolling cover position. Interaction
+                    // bounds are queried from the live coordinates when the user acts.
+                    if (resolvedWallpaperTintEnabled) Modifier.onGloballyPositioned { coordinates ->
+                        if (screenMetrics.heightPx > 0f) {
+                            cardYFraction.floatValue =
+                                (coordinates.boundsInRoot().top / screenMetrics.heightPx).coerceIn(0f, 1f)
+                        }
+                    } else Modifier
+                )
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 //  [交互优化] 封面区域：点击跳转
                 .pointerInput(isLongPressEnabled, onLongClick, onDismiss, onWatchLater, onUnfavorite) {
@@ -1822,7 +1833,7 @@ internal fun ElegantVideoCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .semantics { contentDescription = "视频标题: ${video.title}" }
-                .onGloballyPositioned { coordinates ->
+                .onPlaced { coordinates ->
                     titleCoordsRef.value = coordinates
                 }
                 //  [交互优化] 标题区域：长按弹出菜单，点击跳转
@@ -1863,6 +1874,20 @@ internal fun ElegantVideoCard(
         )
 
         val resolvedUpBadgeVisibility = com.android.purebilibili.core.ui.LocalUpBadgeVisibility.current
+        VideoCardOwnerMetadata(
+            video = video,
+            isFollowing = isFollowing,
+            showUpBadge = showUpBadge ?: resolvedUpBadgeVisibility.showBadges,
+            showUpAvatar = showUpAvatar ?: resolvedUpBadgeVisibility.showAvatars,
+            upFollowerCount = upFollowerCount,
+            upVideoCount = upVideoCount,
+            infoBadgeStyle = badgeStylePolicy.infoStyle,
+            inlinePillColors = inlinePillColors,
+            metadataColors = metadataColors,
+            onUpClick = onUpClick,
+            modifier = resolveVideoCardMetadataRowModifier()
+        )
+
         if (scrollLitePolicy.showSecondaryStatsRow) {
             Spacer(modifier = Modifier.height(AppSpacingTokens.ExtraSmall + AppSpacingTokens.Micro))
             Column(
@@ -1901,20 +1926,6 @@ internal fun ElegantVideoCard(
                 }
             }
         }
-
-        VideoCardOwnerMetadata(
-            video = video,
-            isFollowing = isFollowing,
-            showUpBadge = showUpBadge ?: resolvedUpBadgeVisibility.showBadges,
-            showUpAvatar = showUpAvatar ?: resolvedUpBadgeVisibility.showAvatars,
-            upFollowerCount = upFollowerCount,
-            upVideoCount = upVideoCount,
-            infoBadgeStyle = badgeStylePolicy.infoStyle,
-            inlinePillColors = inlinePillColors,
-            metadataColors = metadataColors,
-            onUpClick = onUpClick,
-            modifier = resolveVideoCardMetadataRowModifier()
-        )
 
         VideoCardDurationPublishRow(
             // 数据贴封面时，时长已随统计行以 pill 呈现，不再在信息区重复显示
@@ -1965,7 +1976,7 @@ internal fun ElegantVideoCard(
                         modifier = Modifier
                             .size(AppChromeSizeTokens.MinimumTouchTarget)
                             .semantics { contentDescription = "更多操作" }
-                            .onGloballyPositioned { coordinates ->
+                            .onPlaced { coordinates ->
                                 menuButtonCoordsRef.value = coordinates
                             }
                             .clickable {

@@ -25,80 +25,51 @@ import kotlin.math.max
 
 val LocalLiquidIndicatorWobbleEnabled = compositionLocalOf { true }
 
-/** Tap selections deform along their travel; manual dragging keeps its original shape until release. */
+/** Landing recoil overlaps the final travel and shrink; manual movement keeps its own deformation. */
 internal class LiquidIndicatorWobble(initialPosition: Float) {
-    private val spring = FloatSpringSpec(dampingRatio = 0.4f, stiffness = 100f, visibilityThreshold = 0.001f)
+    private val spring = FloatSpringSpec(dampingRatio = 0.65f, stiffness = 300f, visibilityThreshold = 0.001f)
     private var position = initialPosition
     private var peakSpeed = 0f
     private var distance = 0f
     private var armed = false
     private var rate = 0f
-    private var filteredSpeed = 0f
-    private var filteredBraking = 0f
-    private var releaseMotion = false
-    private var releaseElapsedNanos = 0L
-    var velocityWeight = 1f
-        private set
-    private var selectionMotion = false
+    private var released = false
+    private var landingConsumed = false
+    // The original velocity deformation remains in charge until it settles naturally.
+    val velocityWeight: Float get() = 1f
     var stretch = 0f
         private set
-    val isSelectionMotion: Boolean get() = selectionMotion
+    var isSelectionMotion = false
+        private set
 
-    /** A changed selection arms one recoil even when its position jumps between frames. */
-    fun onSelectionChanged(continuous: Boolean = false, preserveRelease: Boolean = false) {
-        // 拖动提交的选中回执只确认落点，不重新驱动已开始的松手回弹。
-        // 新的点按仍可接管当前形变。
-        if (preserveRelease && releaseMotion) return
-        if (continuous) {
-            // Retargeting keeps the shape and its velocity. Even a selection that
-            // lands between samples receives one small, continuous response.
-            if (!selectionMotion) {
-                rate = 1.8f
-                releaseElapsedNanos = 0L
-            }
-            selectionMotion = true
-            armed = false
-            distance = 0f
-            peakSpeed = 0f
-            releaseMotion = false
-            return
-        }
-        selectionMotion = false
+    /** A new target cancels the previous tail and arms exactly one landing response. */
+    fun onSelectionChanged(preserveRelease: Boolean = false) {
+        // A delayed drag-selection acknowledgement must not replay the release recoil.
+        if (preserveRelease && released) return
+        released = false
+        landingConsumed = false
         armed = true
         peakSpeed = max(peakSpeed, 1.5f)
         stretch = 0f
         rate = 0f
+        isSelectionMotion = false
     }
 
     fun onInteractionStarted() {
-        velocityWeight = 1f
-        releaseElapsedNanos = 0L
-        selectionMotion = false
-        releaseMotion = false
-        stretch = 0f
-        rate = 0f
-        filteredSpeed = 0f
-        filteredBraking = 0f
-        distance = 0f
-        peakSpeed = 0f
-        armed = false
+        reset(position)
     }
 
-    /** Release joins the position's settling phase, without waiting for press/velocity springs. */
+    /** Remember the release; settling the position and bloom remains the caller's responsibility. */
     fun onInteractionReleased(nextPosition: Float = position) {
-        // A short drag can finish before the frame worker samples its last delta.
         val pendingDistance = if (nextPosition.isFinite()) abs(nextPosition - position) else 0f
         if (!armed && distance + pendingDistance < 0.02f) return
-        selectionMotion = true
-        releaseMotion = true
-        velocityWeight = 1f
-        releaseElapsedNanos = 0L
-        armed = false
-        distance = 0f
-        rate = recoilVelocity(max(peakSpeed, pendingDistance * 60f))
-        filteredSpeed = 0f
-        filteredBraking = 0f
-        peakSpeed = 0f
+        released = true
+        landingConsumed = false
+        armed = true
+        peakSpeed = max(peakSpeed, pendingDistance * 60f)
+        stretch = 0f
+        rate = 0f
+        isSelectionMotion = false
     }
 
     fun advance(
@@ -107,85 +78,48 @@ internal class LiquidIndicatorWobble(initialPosition: Float) {
         canSettle: Boolean = true,
         manualInteraction: Boolean = false,
         holdSelectionMotion: Boolean = false,
+        landingMotion: Boolean = false,
     ): Boolean {
         if (!nextPosition.isFinite()) {
             reset(position)
             return false
         }
         if (elapsedNanos <= 0L) return false
-        // A short busy frame during page selection must not clear the visible shape.
-        // Only a suspended window discards motion; cap spring advancement after a stall.
         if (elapsedNanos > 500_000_000L) {
             reset(nextPosition)
             return false
         }
         val springNanos = elapsedNanos.coerceAtMost(50_000_000L)
-        val seconds = elapsedNanos / 1_000_000_000f
-        val signedVelocity = ((nextPosition - position) / seconds).coerceIn(-30f, 30f)
         val delta = abs(nextPosition - position)
         position = nextPosition
         val moving = delta > 0.0001f
-        if (manualInteraction) {
-            selectionMotion = false
-            releaseMotion = false
-        }
-        if (selectionMotion) {
-            if (velocityWeight > 0f) {
-                // Keep the release frame identical to the held shape, then hand
-                // velocity deformation over without delaying the original recoil.
-                releaseElapsedNanos += springNanos
-                val progress = (releaseElapsedNanos / 120_000_000f).coerceIn(0f, 1f)
-                velocityWeight = 1f - progress * progress * (3f - 2f * progress)
-            }
-            fun saturate(value: Float) = 1f - 2f / (exp(2f * value) + 1f)
-            // Smooth speed before differentiating it. Coalesced pager updates and
-            // direction reversals must not inject a fresh collision on each frame.
-            val previousSpeed = filteredSpeed
-            val blend = 1f - exp(-seconds / 0.04f)
-            filteredSpeed += (abs(signedVelocity) - filteredSpeed) * blend
-            val braking = max(0f, (previousSpeed - filteredSpeed) / seconds)
-            filteredBraking += (braking - filteredBraking) * blend
-            val target = if (releaseMotion) 0f else
-                0.18f * saturate(filteredSpeed / 3f) - 0.14f * saturate(filteredBraking / 25f)
-            val initial = stretch
-            stretch = spring.getValueFromNanos(springNanos, initial, target, rate)
-            rate = spring.getVelocityFromNanos(springNanos, initial, target, rate)
-            val active = moving || holdSelectionMotion || abs(stretch) > 0.001f || abs(rate) > 0.01f ||
-                (!releaseMotion && (filteredSpeed > 0.01f || filteredBraking > 0.05f))
-            if (!active) {
-                selectionMotion = false
-                releaseMotion = false
-                stretch = 0f
-                rate = 0f
-                filteredSpeed = 0f
-                filteredBraking = 0f
-            }
-            // No separate release impulse: the same shape spring returns naturally to zero.
-            return active
-        }
-        if (moving) {
+        if (!landingMotion) landingConsumed = false
+        if (moving && !landingConsumed) {
             peakSpeed = max(peakSpeed, (delta * 1_000_000_000f / elapsedNanos).coerceAtMost(30f))
             distance += delta
             armed = armed || distance >= 0.02f
         }
-        if (moving || !canSettle) {
-            // Original drag, velocity stretch and press transforms own this entire phase.
-            // New input cancels an already playing recoil, without restarting it on release.
-            if (!moving && rate != 0f) {
+        if (manualInteraction || !canSettle || (!landingMotion && (moving || holdSelectionMotion))) {
+            // New input cancels a playing tail. Pending travel still gets one response
+            // after its final landing; a stationary press alone must not replay it.
+            if (!moving && isSelectionMotion) {
                 armed = false
                 distance = 0f
                 peakSpeed = 0f
             }
             stretch = 0f
             rate = 0f
+            isSelectionMotion = false
+            // No idle frame loop while waiting: input changes wake the worker again.
             return moving
         }
         if (armed) {
             armed = false
             distance = 0f
-            // Begin at zero displacement so the extra animation has no entry jump.
             rate = recoilVelocity(peakSpeed)
+            landingConsumed = true
             peakSpeed = 0f
+            isSelectionMotion = true
         }
         val initial = stretch
         stretch = spring.getValueFromNanos(springNanos, initial, 0f, rate)
@@ -194,25 +128,24 @@ internal class LiquidIndicatorWobble(initialPosition: Float) {
         if (!active) {
             stretch = 0f
             rate = 0f
+            isSelectionMotion = false
+            released = false
         }
         return active
     }
 
     private fun recoilVelocity(speed: Float): Float =
-        -(2.3f + 0.6f * (1f - 2f / (exp(2f * speed / 3f) + 1f)))
+        -(1.8f + 0.5f * (1f - 2f / (exp(2f * speed / 3f) + 1f)))
 
     fun reset(nextPosition: Float) {
-        velocityWeight = 1f
-        releaseElapsedNanos = 0L
         position = nextPosition
         peakSpeed = 0f
         distance = 0f
         armed = false
         rate = 0f
-        filteredSpeed = 0f
-        filteredBraking = 0f
-        releaseMotion = false
-        selectionMotion = false
+        released = false
+        landingConsumed = false
+        isSelectionMotion = false
         stretch = 0f
     }
 }
@@ -237,7 +170,7 @@ private data class LiquidWobbleInput(
     val selectionMotion: Boolean?,
 )
 
-/** One frame worker per indicator; retargets preserve the current shape and its velocity. */
+/** One frame worker per indicator; new targets cancel the previous landing response. */
 @Composable
 fun rememberLiquidIndicatorWobble(
     enabled: Boolean,
@@ -275,19 +208,18 @@ fun rememberLiquidIndicatorWobble(
                     val pressed = !observed.manual && next.manual
                     val released = observed.manual && !next.manual
                     val explicitTapStarted = next.selectionMotion == true && observed.selectionMotion != true
-                    val continuous = !next.manual && !released && (wobble.isSelectionMotion || next.selectionMotion == true ||
-                        (selectionChanged && !observed.manual))
                     if (pressed) {
                         wobble.onInteractionStarted()
                     } else if (released) {
                         wobble.onInteractionReleased(next.position)
                     } else if (!next.manual && (selectionChanged || explicitTapStarted)) {
-                        wobble.onSelectionChanged(continuous, preserveRelease = !explicitTapStarted)
+                        wobble.onSelectionChanged(preserveRelease = !explicitTapStarted)
                     }
                     result.isSelectionMotion = wobble.isSelectionMotion
                     result.velocityWeight = wobble.velocityWeight
-                    // Only manual input suppresses the new shape while moving.
-                    if (next.manual) result.floatValue = 0f
+                    // Clear old tails immediately on a new target, press or blocked phase.
+                    result.floatValue = if (next.manual || !next.canSettle) 0f
+                        else wobble.stretch.coerceIn(-0.18f, 0.18f)
                     observed = next
                     if (worker?.isActive != true) worker = launch {
                         // Process the first delivered frame too; waiting for a second
@@ -301,6 +233,7 @@ fun rememberLiquidIndicatorWobble(
                                 wobble.advance(
                                     current.position, ((previous?.let { now - it } ?: 16_666_667L) / durationScale).toLong(),
                                     current.canSettle, current.manual, current.selectionMotion == true,
+                                    landingMotion = current.canSettle,
                                 )
                             } else {
                                 wobble.reset(current.position)
@@ -318,6 +251,20 @@ fun rememberLiquidIndicatorWobble(
     }
     return result
 }
+
+/** Recoil joins braking within the last 2.5% of the available travel range. */
+fun isLiquidIndicatorNearLanding(position: Float, target: Float, range: Float): Boolean =
+    position.isFinite() && target.isFinite() && range.isFinite() &&
+        abs(position - target) <= (abs(range) * LiquidIndicatorMotion.ReleaseDistanceFraction).coerceAtLeast(0.001f)
+
+/** Shared landing policy for taps, indicator drags and page swipes. Held input always wins. */
+fun canStartLiquidIndicatorRecoil(
+    position: Float,
+    target: Float,
+    range: Float,
+    interactionActive: Boolean,
+    returning: Boolean = true,
+): Boolean = !interactionActive && returning && isLiquidIndicatorNearLanding(position, target, range)
 
 fun liquidWobbleScaleX(base: Float, stretch: Float): Float = base * (1f + stretch)
 fun liquidWobbleScaleY(base: Float, stretch: Float): Float = base * (1f - stretch * 1.4f)

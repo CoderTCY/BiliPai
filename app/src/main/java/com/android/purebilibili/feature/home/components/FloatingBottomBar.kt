@@ -530,6 +530,8 @@ fun FloatingBottomBar(
     dragScrollState: ScrollState? = null,
     dragScrollViewportWidthPx: () -> Float = { 0f },
     isPagerDraggingProvider: (() -> Boolean)? = null,
+    pagerTargetPositionProvider: (() -> Float)? = null,
+    isPagerNavigatingProvider: (() -> Boolean)? = null,
     content: @Composable RowScope.() -> Unit
 ) {
     // Do not use the system night flag here: BiliPai supports an app-only dark theme.
@@ -678,6 +680,8 @@ fun FloatingBottomBar(
     val indicatorPositionLatest by rememberUpdatedState(indicatorPositionProvider)
     val isScrollInProgressLatest by rememberUpdatedState(isScrollInProgressProvider)
     val isPagerDraggingLatest by rememberUpdatedState(isPagerDraggingProvider)
+    val pagerTargetPositionLatest by rememberUpdatedState(pagerTargetPositionProvider)
+    val isPagerNavigatingLatest by rememberUpdatedState(isPagerNavigatingProvider)
     val externalPagerMotionEffectsLatest by rememberUpdatedState(externalPagerMotionEffectsEnabled)
     val pagerFollowGate = remember { ExternalPagerIndicatorFollowGate() }
     var selectionTapFeedbackActive by remember { mutableStateOf(false) }
@@ -842,6 +846,20 @@ fun FloatingBottomBar(
             }
         }
     }
+    // Programmatic return is one selection, even when the pager crosses several pages.
+    // Native materials and actual finger-driven paging retain their existing behavior.
+    LaunchedEffect(dampedDragAnimation, isLiquidGlassMode, maxTabIndex) {
+        if (!isLiquidGlassMode) return@LaunchedEffect
+        snapshotFlow {
+            if (isPagerNavigatingLatest?.invoke() == true) {
+                pagerTargetPositionLatest?.invoke()?.roundToInt()?.coerceIn(0, maxTabIndex)
+            } else null
+        }.collect { target ->
+            if (target != null && glassTapTarget != target && !dampedDragAnimation.isDragging) {
+                selectionTapFeedback(target)
+            }
+        }
+    }
     LaunchedEffect(glassTapTarget, isLiquidGlassMode) {
         val target = glassTapTarget ?: return@LaunchedEffect
         snapshotFlow {
@@ -967,29 +985,44 @@ fun FloatingBottomBar(
                 (dragSelectionEnabled || longPressDragSelectionEnabled),
         )
     }
-    // Glass recoil joins release immediately. Native press/velocity transforms retain their specs.
+    // Glass-only policy: real pointers hold the tail; all released paths use the final target.
+    // Pager-follow scales already shrink with page progress, so they must not wait for scale == 1.
+    val wobbleManualInteraction: () -> Boolean = {
+        resolveFloatingDockWobbleManualInteraction(
+            indicatorDragging = dampedDragAnimation.isDragging,
+            pagerDragging = isPagerDraggingLatest?.invoke(),
+            pagerScrolling = isScrollInProgressLatest(),
+            tapMotionActive = (glassTapTarget != null || selectionTapFeedbackActive),
+            indicatorOwnsTarget = pagerFollowGate.ownedTargetIndex != null,
+        )
+    }
+    val followsExternalPager: () -> Boolean = {
+        externalPagerMotionEffectsLatest && indicatorPositionLatest != null && pagerTargetPositionLatest != null &&
+            glassTapTarget == null && pagerFollowGate.ownedTargetIndex == null
+    }
+    val wobbleTarget: () -> Float = {
+        glassTapTarget?.toFloat() ?: pagerFollowGate.ownedTargetIndex?.toFloat() ?:
+            (if (followsExternalPager()) pagerTargetPositionLatest?.invoke() else null) ?:
+            dampedDragAnimation.targetValue
+    }
     val canRecoil: () -> Boolean = {
-        !dampedDragAnimation.isDragging &&
-            (!isScrollInProgressLatest() || pagerFollowGate.ownedTargetIndex != null) &&
-            !selectionTapFeedbackActive
+        com.android.purebilibili.core.ui.animation.canStartLiquidIndicatorRecoil(
+            position = rawIndicatorPositionProvider(),
+            target = wobbleTarget(),
+            range = maxTabIndex.toFloat(),
+            interactionActive = wobbleManualInteraction(),
+            returning = followsExternalPager() || dampedDragAnimation.isReadyForRecoil,
+        )
     }
     val indicatorWobble = rememberLiquidIndicatorWobble(
         enabled = isLiquidGlassMode,
         // Position is in slots: search/label width changes must not recreate the shape spring.
         geometryKey = safeTabsCount,
         canSettle = canRecoil,
-        // 松手即确认拖动落点；稍后的页面回执不能再触发一次选中形变。
-        selectionKey = { glassTapTarget ?: pagerFollowGate.ownedTargetIndex ?: selectedIndexLatest.value() },
-        interactionActive = {
-            resolveFloatingDockWobbleManualInteraction(
-                indicatorDragging = dampedDragAnimation.isDragging,
-                pagerDragging = isPagerDraggingLatest?.invoke(),
-                pagerScrolling = isScrollInProgressLatest(),
-                tapMotionActive = (glassTapTarget != null || selectionTapFeedbackActive),
-                indicatorOwnsTarget = pagerFollowGate.ownedTargetIndex != null,
-            )
-        },
-        // 目标锁只负责导航；甩尾仅在分页实际运动时保持，取消切页后可自行收敛。
+        // 松手仅记录待回弹；稍后的页面回执不能再触发一次甩尾。
+        selectionKey = { wobbleTarget().roundToInt() },
+        interactionActive = wobbleManualInteraction,
+        // 点按身份持续到收尾结束；是否进入回弹由接近落点与缩放收回共同决定。
         selectionMotionActive = {
             (glassTapTarget != null && isScrollInProgressLatest()) || selectionTapFeedbackActive
         },
@@ -1000,7 +1033,7 @@ fun FloatingBottomBar(
             indicatorWobble.value,
             !dampedDragAnimation.isDragging &&
                 isPagerDraggingLatest?.invoke() != true &&
-                (indicatorWobble.isSelectionMotion || canRecoil()),
+                canRecoil(),
         )
     }
     LaunchedEffect(dampedDragAnimation) {
@@ -1037,8 +1070,7 @@ fun FloatingBottomBar(
         }
     }
     // A single final geometry feeds the backdrop transform and its optical band.
-    // Manual dragging keeps its original velocity; release fades that contribution
-    // continuously while the original bloom and recoil springs keep running.
+    // Original velocity stretch stays active; the landing tail overlaps the final shrink.
     val indicatorVelocityProvider: () -> Float = {
         dampedDragAnimation.velocity *
             if (dampedDragAnimation.isDragging) 1f else indicatorWobble.velocityWeight

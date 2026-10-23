@@ -890,7 +890,7 @@ fun HomeScreen(
     val dissolvingVideos by viewModel.dissolvingVideos.collectAsStateWithLifecycle()
     val followingMids by viewModel.followingMids.collectAsHomeFeedState(homeFeedUpdatesAllowed)
     val showOnlineCount by SettingsManager
-        .getShowOnlineCount(context)
+        .getShowCardOnlineCount(context)
         .collectAsStateWithLifecycle(initialValue = false)
     val homeFeedCardStyle by SettingsManager
         .getHomeFeedCardStyle(context)

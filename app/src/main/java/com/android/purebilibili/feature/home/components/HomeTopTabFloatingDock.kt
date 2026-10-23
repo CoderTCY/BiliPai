@@ -150,6 +150,8 @@ internal fun HomeTopTabFloatingDock(
     scrollState: androidx.compose.foundation.ScrollState? = null,
     horizontalPadding: Dp = AppSpacingTokens.ExtraSmall,
     isPagerDraggingProvider: (() -> Boolean)? = null,
+    pagerTargetPositionProvider: (() -> Float)? = null,
+    isPagerNavigatingProvider: (() -> Boolean)? = null,
 ) {
     if (categories.isEmpty()) return
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(0.01f)
@@ -310,6 +312,8 @@ internal fun HomeTopTabFloatingDock(
         externalPagerMotionEffectsEnabled = indicatorPositionProvider != null,
         isScrollInProgressProvider = isScrollInProgressProvider,
         isPagerDraggingProvider = isPagerDraggingProvider,
+        pagerTargetPositionProvider = pagerTargetPositionProvider,
+        isPagerNavigatingProvider = isPagerNavigatingProvider,
         onIndicatorPositionChanged = null,
         liquidGlassTuningOverride = liquidGlassTuning,
         onItemReselected = onReselected,

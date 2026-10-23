@@ -1,6 +1,8 @@
 // 文件路径: feature/video/screen/VideoContentSection.kt
 package com.android.purebilibili.feature.video.screen
 
+import com.android.purebilibili.feature.video.ui.components.RelatedVideoList
+
 import com.android.purebilibili.core.ui.AppContentColors
 
 import androidx.compose.material.icons.outlined.Edit
@@ -1434,11 +1436,12 @@ private fun VideoIntroTab(
         chunkRelatedVideosForHomeStyleGrid(visibleRelatedVideos)
     }
     val relatedVideoCardLayout = rememberRelatedVideoCardLayout()
-    LazyColumn(
+    RelatedVideoList(
+        cardLayout = relatedVideoCardLayout,
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding
-    ) {
+    ) { cardPresentation ->
         // 1. 移入的 Header 区域
         item(key = "video_intro_header", contentType = "video_intro_header") {
             VideoHeaderContent(
@@ -1541,6 +1544,7 @@ private fun VideoIntroTab(
                 RelatedVideoGridRow(
                     videos = row,
                     cardLayout = relatedVideoCardLayout,
+                    cardPresentation = cardPresentation,
                     followingMids = followingMids,
                     showUpBadge = showUpBadge,
                     onVideoClick = { video ->

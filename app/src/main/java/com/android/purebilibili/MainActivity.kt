@@ -1354,8 +1354,7 @@ open class MainActivity : AppCompatActivity() {
             // val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
             // var showWelcome by remember { mutableStateOf(!prefs.getBoolean(KEY_FIRST_LAUNCH, false)) }
 
-            val appThemeSettings by SettingsManager
-                .getAppThemeSettings(context)
+            val appThemeSettings by remember(context) { SettingsManager.getAppThemeSettings(context) }
                 .collectAsStateWithLifecycle(
                     initialValue = SettingsManager.getInitialAppThemeSettings(context)
                 )
@@ -1576,6 +1575,7 @@ open class MainActivity : AppCompatActivity() {
                 ProvideAppTextSelectionHost {
                     //  📐 [平板适配] 提供全局 WindowSizeClass
                     CompositionLocalProvider(
+                        com.android.purebilibili.feature.settings.LocalSettingsThemeConfiguration provides appThemeSettings,
                         LocalDensity provides effectiveDensity,
                         LocalDetailedCommentTimeEnabled provides detailedCommentTimeEnabled,
                         LocalWindowSizeClass provides windowSizeClass,

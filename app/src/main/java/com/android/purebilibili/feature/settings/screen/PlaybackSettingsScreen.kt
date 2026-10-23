@@ -30,7 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,7 +43,6 @@ import com.android.purebilibili.core.store.DEFAULT_DASH_SEGMENT_REQUESTS_ENABLED
 import com.android.purebilibili.core.store.DEFAULT_PLAYER_DIAGNOSTIC_LOGGING_ENABLED
 import com.android.purebilibili.core.store.DEFAULT_QUALITY_SWITCH_FAILURE_DIALOG_ENABLED
 import com.android.purebilibili.core.store.DEFAULT_QUALITY_SWITCH_FAILURE_DIALOG_ONCE_ENABLED
-import com.android.purebilibili.core.store.DEFAULT_LONG_PRESS_SPEED
 import com.android.purebilibili.core.store.DEFAULT_PLAYBACK_SPEED_OPTIONS
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.store.LONG_PRESS_SPEED_HINT_ALPHA_MAX
@@ -51,8 +50,8 @@ import com.android.purebilibili.core.store.LONG_PRESS_SPEED_HINT_ALPHA_MIN
 import com.android.purebilibili.core.store.LONG_PRESS_SPEED_HINT_SCALE_MAX
 import com.android.purebilibili.core.store.LONG_PRESS_SPEED_HINT_SCALE_MIN
 import com.android.purebilibili.core.store.LONG_PRESS_SPEED_HINT_STEP
-import com.android.purebilibili.core.store.player.DEFAULT_AUDIO_QUALITY_FOLLOW_LAST
 import com.android.purebilibili.core.store.player.PlayerSettingsStore
+import com.android.purebilibili.core.store.player.DEFAULT_AUDIO_QUALITY_FOLLOW_LAST
 import com.android.purebilibili.core.ui.adaptive.resolveDeviceUiProfile
 import com.android.purebilibili.core.store.BottomProgressBehavior
 import com.android.purebilibili.core.store.FullscreenAspectRatio
@@ -97,6 +96,7 @@ fun PlaybackSettingsScreen(
     page: PlaybackSettingsPage = PlaybackSettingsPage.PLAYBACK,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val homeConfiguration = rememberSettingsHomeConfiguration()
     val effectivePage = page
     val screenTitle = effectivePage.title
     val backLabel = stringResource(R.string.common_back)
@@ -111,7 +111,7 @@ fun PlaybackSettingsScreen(
         externalContentHandlesTopPadding = true,
         topBarBlurEnabled = state.headerBlurEnabled,
     ) {
-        CompositionLocalProvider(LocalSettingsLiquidGlassEnabled provides state.isLiquidGlassEnabled) {
+        CompositionLocalProvider(LocalSettingsLiquidGlassEnabled provides homeConfiguration.isLiquidGlassEnabled) {
             PlaybackSettingsContent(viewModel = viewModel, state = state, page = effectivePage)
         }
     }
@@ -127,6 +127,15 @@ fun PlaybackSettingsContent(
     modifier: Modifier = Modifier,
     page: PlaybackSettingsPage = PlaybackSettingsPage.PLAYBACK,
 ) {
+    val preferencesState by viewModel.playbackPreferences.collectAsStateWithLifecycle()
+    val playbackPreferences = preferencesState
+    if (playbackPreferences == null) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            AppCircularProgressIndicator()
+        }
+        return
+    }
+    val playerConfiguration = rememberSettingsPlayerConfiguration()
     val listState = rememberLazyListState()
     val focusRequest by SettingsSearchFocusController.request.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -169,81 +178,40 @@ fun PlaybackSettingsContent(
     var showPipPermissionDialog by remember { mutableStateOf(false) }
     val playbackInsightScope = rememberCoroutineScope()
 
-    val miniPlayerMode by com.android.purebilibili.core.store.SettingsManager
-        .getMiniPlayerMode(context).collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.SettingsManager.MiniPlayerMode.OFF
-        )
-    val stopPlaybackOnExit by com.android.purebilibili.core.store.SettingsManager
-        .getStopPlaybackOnExit(context).collectAsStateWithLifecycle(initialValue = false)
-    val backgroundPlaybackEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getBackgroundPlaybackEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val audioFocusEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getAudioFocusEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val audioModeAutoPipEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getAudioModeAutoPipEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-    val audioNowPlayingBarEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getAudioNowPlayingBarEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val audioNowPlayingBarImmersiveEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getAudioNowPlayingBarImmersiveEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val audioNowPlayingBarOpensAudioMode by SettingsManager
-        .getAudioNowPlayingBarOpensAudioMode(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val musicLyricsUiStyle by SettingsManager
-        .getMusicLyricsUiStyle(context)
-        .collectAsStateWithLifecycle(initialValue = SettingsManager.MusicLyricsUiStyle.CLASSIC)
-    val loudnessNormalizationEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getLoudnessNormalizationEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-    val audioSpectrumEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getAudioSpectrumEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-    val startupAutoPlayEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getStartupAutoPlayEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-    val playerDiagnosticLoggingEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getPlayerDiagnosticLoggingEnabled(context)
+    val miniPlayerMode = playbackPreferences.miniPlayerMode
+    val stopPlaybackOnExit = playbackPreferences.stopPlaybackOnExit
+    val backgroundPlaybackEnabled = playbackPreferences.backgroundPlaybackEnabled
+    val audioFocusEnabled = playbackPreferences.audioFocusEnabled
+    val audioModeAutoPipEnabled = playbackPreferences.audioModeAutoPipEnabled
+    val audioNowPlayingBarEnabled = playbackPreferences.audioNowPlayingBarEnabled
+    val audioNowPlayingBarImmersiveEnabled = playbackPreferences.audioNowPlayingBarImmersiveEnabled
+    val audioNowPlayingBarOpensAudioMode = playbackPreferences.audioNowPlayingBarOpensAudioMode
+    val musicLyricsUiStyle = playbackPreferences.musicLyricsUiStyle
+    val loudnessNormalizationEnabled = playbackPreferences.loudnessNormalizationEnabled
+    val audioSpectrumEnabled = playbackPreferences.audioSpectrumEnabled
+    val startupAutoPlayEnabled = playbackPreferences.startupAutoPlayEnabled
+    val playerDiagnosticLoggingEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getPlayerDiagnosticLoggingEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_PLAYER_DIAGNOSTIC_LOGGING_ENABLED)
-    val playerInsightMode by SettingsManager
-        .getPlayerInsightMode(context)
+    val playerInsightMode by remember(context) { SettingsManager.getPlayerInsightMode(context) }
         .collectAsStateWithLifecycle(initialValue = SettingsManager.getPlayerInsightModeSync(context))
-    val dashSegmentRequestsEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getDashSegmentRequestsEnabled(context)
+    val dashSegmentRequestsEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getDashSegmentRequestsEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_DASH_SEGMENT_REQUESTS_ENABLED)
-    val qualitySwitchFailureDialogEnabled by SettingsManager
-        .getQualitySwitchFailureDialogEnabled(context)
+    val qualitySwitchFailureDialogEnabled by remember(context) { SettingsManager.getQualitySwitchFailureDialogEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_QUALITY_SWITCH_FAILURE_DIALOG_ENABLED)
-    val qualitySwitchFailureDialogOnceEnabled by SettingsManager
-        .getQualitySwitchFailureDialogOnceEnabled(context)
+    val qualitySwitchFailureDialogOnceEnabled by remember(context) { SettingsManager.getQualitySwitchFailureDialogOnceEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_QUALITY_SWITCH_FAILURE_DIALOG_ONCE_ENABLED)
-    val playbackSpeedOptions by SettingsManager
-        .getPlaybackSpeedOptions(context)
+    val playbackSpeedOptions by remember(context) { SettingsManager.getPlaybackSpeedOptions(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_PLAYBACK_SPEED_OPTIONS)
-    val longPressSpeed by SettingsManager
-        .getLongPressSpeed(context)
-        .collectAsStateWithLifecycle(initialValue = DEFAULT_LONG_PRESS_SPEED)
-    val defaultPlaybackSpeed by com.android.purebilibili.core.store.SettingsManager
-        .getDefaultPlaybackSpeed(context).collectAsStateWithLifecycle(initialValue = 1.0f)
-    val rememberLastPlaybackSpeed by com.android.purebilibili.core.store.SettingsManager
-        .getRememberLastPlaybackSpeed(context).collectAsStateWithLifecycle(initialValue = false)
-    val nativeMiuixPlayerPopups by PlayerSettingsStore
-        .getNativeMiuixPlayerPopups(context).collectAsStateWithLifecycle(initialValue = true)
-    val longPressSpeedHintHidden by SettingsManager
-        .getLongPressSpeedHintHidden(context)
-        .collectAsStateWithLifecycle(
-            initialValue = SettingsManager.getLongPressSpeedHintHiddenSync(context)
-        )
-    val longPressSpeedHintScale by SettingsManager
-        .getLongPressSpeedHintScale(context)
-        .collectAsStateWithLifecycle(
-            initialValue = SettingsManager.getLongPressSpeedHintScaleSync(context)
-        )
-    val longPressSpeedHintAlpha by SettingsManager
-        .getLongPressSpeedHintAlpha(context)
-        .collectAsStateWithLifecycle(
-            initialValue = SettingsManager.getLongPressSpeedHintAlphaSync(context)
-        )
-    val videoCodecPreference by com.android.purebilibili.core.store.SettingsManager
-        .getVideoCodec(context).collectAsStateWithLifecycle(initialValue = "hev1")
-    val videoSecondCodecPreference by com.android.purebilibili.core.store.SettingsManager
-        .getVideoSecondCodec(context).collectAsStateWithLifecycle(initialValue = "avc1")
-    val playbackCdnPreferenceValue by SettingsManager
-        .getPlaybackCdnPreference(context)
+    val longPressSpeed = playerConfiguration.longPressSpeed
+    val defaultPlaybackSpeed by remember(context) { com.android.purebilibili.core.store.SettingsManager.getDefaultPlaybackSpeed(context) }.collectAsStateWithLifecycle(initialValue = 1.0f)
+    val rememberLastPlaybackSpeed by remember(context) { com.android.purebilibili.core.store.SettingsManager.getRememberLastPlaybackSpeed(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val nativeMiuixPlayerPopups by remember(context) { PlayerSettingsStore.getNativeMiuixPlayerPopups(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val longPressSpeedHintHidden = playerConfiguration.longPressSpeedHintHidden
+    val longPressSpeedHintScale = playerConfiguration.longPressSpeedHintScale
+    val longPressSpeedHintAlpha = playerConfiguration.longPressSpeedHintAlpha
+    val videoCodecPreference = playbackPreferences.videoCodecPreference
+    val videoSecondCodecPreference = playbackPreferences.videoSecondCodecPreference
+    val playbackCdnPreferenceValue by remember(context) { SettingsManager.getPlaybackCdnPreference(context) }
         .collectAsStateWithLifecycle(initialValue = PlaybackCdnPreference.BASE_URL.storageValue)
     val playbackCdnPreference = remember(playbackCdnPreferenceValue) {
         PlaybackCdnPreference.fromStorageValue(playbackCdnPreferenceValue)
@@ -624,9 +592,7 @@ SettingsItemAnchor("playback.video_second_codec_preference") {
             item(key = SettingsSearchFocusIds.PLAYBACK_MINI_PLAYER) {
                 Box(modifier = Modifier.entrance()) {
                     val scope = rememberCoroutineScope()
-                    val pipNoDanmakuEnabled by com.android.purebilibili.core.store.SettingsManager
-                        .getPipNoDanmakuEnabled(context)
-                        .collectAsStateWithLifecycle(initialValue = false)
+                    val pipNoDanmakuEnabled = playerConfiguration.pipNoDanmakuEnabled
                     val modeControlsEnabled = remember(stopPlaybackOnExit, backgroundPlaybackEnabled) {
                         !stopPlaybackOnExit && backgroundPlaybackEnabled
                     }
@@ -1000,19 +966,11 @@ SettingsItemAnchor("playback.music_lyrics_ui_style") {
             item(key = SettingsSearchFocusIds.PLAYBACK_NETWORK) {
                 Box(modifier = Modifier.entrance()) {
                     val scope = rememberCoroutineScope()
-                    val wifiQuality by com.android.purebilibili.core.store.SettingsManager
-                        .getWifiQuality(context).collectAsStateWithLifecycle(initialValue = 80)
-                    val mobileQuality by com.android.purebilibili.core.store.SettingsManager
-                        .getMobileQuality(context).collectAsStateWithLifecycle(initialValue = 64)
-                    val defaultAudioQuality by PlayerSettingsStore
-                        .getDefaultAudioQuality(context)
-                        .collectAsStateWithLifecycle(
-                            initialValue = DEFAULT_AUDIO_QUALITY_FOLLOW_LAST
-                        )
-                    val autoHighestQualityEnabled by com.android.purebilibili.core.store.SettingsManager
-                        .getAutoHighestQuality(context).collectAsStateWithLifecycle(initialValue = false)
-                    val directedTrafficEnabled by com.android.purebilibili.core.store.SettingsManager
-                        .getBiliDirectedTrafficEnabled(context).collectAsStateWithLifecycle(initialValue = false)
+                    val wifiQuality = playbackPreferences.wifiQuality
+                    val mobileQuality = playbackPreferences.mobileQuality
+                    val defaultAudioQuality = playbackPreferences.defaultAudioQuality
+                    val autoHighestQualityEnabled = playbackPreferences.autoHighestQualityEnabled
+                    val directedTrafficEnabled = playbackPreferences.directedTrafficEnabled
                     val isLoggedIn = com.android.purebilibili.data.repository.VideoRepository.isPlaybackLoggedIn()
                     val isVip = com.android.purebilibili.data.repository.VideoRepository.isPlaybackVip()
 
@@ -1127,9 +1085,7 @@ SettingsItemAnchor("playback.wifi_quality") {
                         AppPreferenceDivider()
 
                         // 📉 读取省流量模式，用于显示提示
-                        val dataSaverModeForHint by com.android.purebilibili.core.store.SettingsManager
-                            .getDataSaverMode(context).collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.SettingsManager.DataSaverMode.MOBILE_ONLY
-                            )
+                        val dataSaverModeForHint = playbackPreferences.dataSaverMode
                         val isDataSaverActive = dataSaverModeForHint != com.android.purebilibili.core.store.SettingsManager.DataSaverMode.OFF
                         val effectiveQuality = resolveEffectiveMobileQuality(
                             rawMobileQuality = mobileQuality,
@@ -1218,12 +1174,8 @@ SettingsSingleChoicePreference(
             item(key = SettingsSearchFocusIds.PLAYBACK_DATA_SAVER) {
                 Box(modifier = Modifier.entrance()) {
                     val scope = rememberCoroutineScope()
-                    val dataSaverMode by com.android.purebilibili.core.store.SettingsManager
-                        .getDataSaverMode(context).collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.SettingsManager.DataSaverMode.MOBILE_ONLY
-                        )
-                    val homeSettings by com.android.purebilibili.core.store.SettingsManager
-                        .getHomeSettings(context).collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.HomeSettings()
-                        )
+                    val dataSaverMode = playbackPreferences.dataSaverMode
+                    val homeSettings = rememberSettingsHomeConfiguration()
                     val dataSaverModeOptions = listOf(
                         AppSegmentOption(com.android.purebilibili.core.store.SettingsManager.DataSaverMode.OFF, "关闭"),
                         AppSegmentOption(com.android.purebilibili.core.store.SettingsManager.DataSaverMode.MOBILE_ONLY, "仅移动数据"),
@@ -1322,72 +1274,50 @@ private fun PlaybackInteractionSettingsSection(
     viewModel: SettingsViewModel,
     playbackControls: Boolean,
 ) {
+    val playerConfiguration = rememberSettingsPlayerConfiguration()
     val scope = rememberCoroutineScope()
-    val hideInteractiveCommandDanmaku by com.android.purebilibili.core.store.SettingsManager
-        .getDanmakuHideInteractiveCommands(context)
+    val hideInteractiveCommandDanmaku by remember(context) { com.android.purebilibili.core.store.SettingsManager.getDanmakuHideInteractiveCommands(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val danmakuCloudSyncEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getDanmakuCloudSyncEnabled(context)
+    val danmakuCloudSyncEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getDanmakuCloudSyncEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = true)
     //  [新增] 自动播放下一个
-    val autoPlayEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getAutoPlay(context).collectAsStateWithLifecycle(initialValue = true)
-    val nextWatchHintEnabled by SettingsManager.getNextWatchHintEnabled(context)
+    val autoPlayEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getAutoPlay(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val nextWatchHintEnabled by remember(context) { SettingsManager.getNextWatchHintEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val externalPlaylistAutoContinueEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getExternalPlaylistAutoContinue(context).collectAsStateWithLifecycle(initialValue = true)
-    val resumePlaybackPromptEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getResumePlaybackPromptEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val spacePlayedVideoLocatePromptEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getSpacePlayedVideoLocatePromptEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val playbackCompletionBehavior by com.android.purebilibili.core.store.SettingsManager
-        .getPlaybackCompletionBehavior(context)
+    val externalPlaylistAutoContinueEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getExternalPlaylistAutoContinue(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val resumePlaybackPromptEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getResumePlaybackPromptEnabled(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val spacePlayedVideoLocatePromptEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getSpacePlayedVideoLocatePromptEnabled(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val playbackCompletionBehavior by remember(context) { com.android.purebilibili.core.store.SettingsManager.getPlaybackCompletionBehavior(context) }
         .collectAsStateWithLifecycle(initialValue = PlaybackCompletionBehavior.CONTINUE_CURRENT_LOGIC)
     val subtitleFeatureEnabled = isSubtitleFeatureEnabledForUser()
-    val subtitleAutoPreference by com.android.purebilibili.core.store.SettingsManager
-        .getSubtitleAutoPreference(context)
-        .collectAsStateWithLifecycle(initialValue = SubtitleAutoPreference.OFF)
-    val videoAiSummaryEntryEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getVideoAiSummaryEntryEnabled(context)
+    val subtitleAutoPreference = playerConfiguration.subtitleAutoPreference
+    val videoAiSummaryEntryEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getVideoAiSummaryEntryEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val videoNoteEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getVideoNoteEnabled(context)
+    val videoNoteEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getVideoNoteEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val videoNoteDefaultCollapsed by com.android.purebilibili.core.store.SettingsManager
-        .getVideoNoteDefaultCollapsed(context)
+    val videoNoteDefaultCollapsed by remember(context) { com.android.purebilibili.core.store.SettingsManager.getVideoNoteDefaultCollapsed(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val videoInfoDefaultExpanded by com.android.purebilibili.core.store.SettingsManager
-        .getVideoInfoDefaultExpanded(context)
+    val videoInfoDefaultExpanded by remember(context) { com.android.purebilibili.core.store.SettingsManager.getVideoInfoDefaultExpanded(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val videoArgueMsgShown by com.android.purebilibili.core.store.SettingsManager
-        .getVideoArgueMsgShown(context)
+    val videoArgueMsgShown by remember(context) { com.android.purebilibili.core.store.SettingsManager.getVideoArgueMsgShown(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val showVideoDetailCommentCount by SettingsManager
-        .getShowVideoDetailCommentCount(context)
+    val showVideoDetailCommentCount by remember(context) { SettingsManager.getShowVideoDetailCommentCount(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val commentFraudDetectionEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getCommentFraudDetectionEnabled(context)
+    val commentFraudDetectionEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getCommentFraudDetectionEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val commentAvatarPushEnabled by SettingsManager
-        .getCommentAvatarPushEnabled(context)
+    val commentAvatarPushEnabled by remember(context) { SettingsManager.getCommentAvatarPushEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val commentMemberDecorationsEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getCommentMemberDecorationsEnabled(context)
+    val commentMemberDecorationsEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getCommentMemberDecorationsEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val detailedCommentTimeEnabled by SettingsManager
-        .getDetailedCommentTimeEnabled(context)
+    val detailedCommentTimeEnabled by remember(context) { SettingsManager.getDetailedCommentTimeEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val subReplyLoadedCountEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getSubReplyLoadedCountEnabled(context)
+    val subReplyLoadedCountEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getSubReplyLoadedCountEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val imagePreviewLongPressSaveEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getImagePreviewLongPressSaveEnabled(context)
+    val imagePreviewLongPressSaveEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getImagePreviewLongPressSaveEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val imagePreview3dPageEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getImagePreview3dPageEnabled(context)
+    val imagePreview3dPageEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getImagePreview3dPageEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val commentCollapsedReplyPreviewLimit by com.android.purebilibili.core.store.SettingsManager
-        .getCommentCollapsedReplyPreviewLimit(context)
+    val commentCollapsedReplyPreviewLimit by remember(context) { com.android.purebilibili.core.store.SettingsManager.getCommentCollapsedReplyPreviewLimit(context) }
         .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.SettingsManager
                 .DEFAULT_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT
         )
@@ -1400,8 +1330,7 @@ private fun PlaybackInteractionSettingsSection(
 
     AppPreferenceGroup {
         // --- Click to Play ---
-        val clickToPlayEnabled by com.android.purebilibili.core.store.SettingsManager
-            .getClickToPlay(context).collectAsStateWithLifecycle(initialValue = true)
+        val clickToPlayEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getClickToPlay(context) }.collectAsStateWithLifecycle(initialValue = true)
 
             if (playbackControls) {
         SettingsItemAnchor("playback.click_to_play_enabled") {
@@ -1704,8 +1633,7 @@ SettingsItemAnchor("playback.subtitle_auto_preference") {
             )
         }
         AppPreferenceDivider()
-        val videoTagSizePreset by com.android.purebilibili.core.store.SettingsManager
-            .getVideoTagSizePreset(context)
+        val videoTagSizePreset by remember(context) { com.android.purebilibili.core.store.SettingsManager.getVideoTagSizePreset(context) }
             .collectAsStateWithLifecycle(
                 initialValue = com.android.purebilibili.core.ui.components.AppTagChipSize.STANDARD
             )
@@ -1792,7 +1720,7 @@ SettingsItemAnchor("playback.video_tag_size_preset") {
                 icon = rememberSettingsSemanticIcon(SettingsIconRole.LIKE_INTERACTION),
                 title = playbackSettingTitle("playback.double_tap_like"),
                 subtitle = "双击视频画面快捷点赞",
-                checked = state.doubleTapLike,
+                checked = playerConfiguration.doubleTapLikeEnabled,
                 onCheckedChange = {
                     viewModel.toggleDoubleTapLike(it)
                     //  [埋点] 设置变更追踪
@@ -1963,28 +1891,20 @@ private fun PlaybackFullscreenGestureSettingsSection(
     state: SettingsUiState,
     viewModel: SettingsViewModel,
 ) {
+    val playerConfiguration = rememberSettingsPlayerConfiguration()
     val scope = rememberCoroutineScope()
-    val portraitPlayerCollapseMode by com.android.purebilibili.core.store.SettingsManager
-        .getPortraitPlayerCollapseMode(context)
+    val portraitPlayerCollapseMode by remember(context) { com.android.purebilibili.core.store.SettingsManager.getPortraitPlayerCollapseMode(context) }
         .collectAsStateWithLifecycle(initialValue = PortraitPlayerCollapseMode.INTRO_ONLY)
-    val videoDetailChromeScrollHideEnabled by SettingsManager
-        .getVideoDetailChromeScrollHideEnabled(context)
+    val videoDetailChromeScrollHideEnabled by remember(context) { SettingsManager.getVideoDetailChromeScrollHideEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val portraitSwipeToFullscreenEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getPortraitSwipeToFullscreenEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val directPortraitStoryEntry by com.android.purebilibili.core.store.SettingsManager
-        .getAutoPortraitFullscreen(context).collectAsStateWithLifecycle(initialValue = false)
-    val portraitOnlyVerticalRecommendations by com.android.purebilibili.core.store.SettingsManager
-        .getPortraitOnlyVerticalRecommendations(context)
+    val portraitSwipeToFullscreenEnabled = playerConfiguration.portraitSwipeToFullscreenEnabled
+    val directPortraitStoryEntry = playerConfiguration.directPortraitStoryEntry
+    val portraitOnlyVerticalRecommendations by remember(context) { com.android.purebilibili.core.store.SettingsManager.getPortraitOnlyVerticalRecommendations(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val launchToPortraitFeedOnStartup by com.android.purebilibili.core.store.SettingsManager
-        .getLaunchToPortraitFeedOnStartup(context).collectAsStateWithLifecycle(initialValue = false)
-    val centerSwipeToFullscreenEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getCenterSwipeToFullscreenEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val slideVolumeBrightnessEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getSlideVolumeBrightnessEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val setSystemBrightnessEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getSetSystemBrightnessEnabled(context).collectAsStateWithLifecycle(initialValue = false)
+    val launchToPortraitFeedOnStartup = playerConfiguration.launchToPortraitFeedOnStartup
+    val centerSwipeToFullscreenEnabled = playerConfiguration.centerSwipeToFullscreenEnabled
+    val slideVolumeBrightnessEnabled = playerConfiguration.slideVolumeBrightnessEnabled
+    val setSystemBrightnessEnabled = playerConfiguration.setSystemBrightnessEnabled
     val lifecycleOwner = LocalLifecycleOwner.current
     var canWriteSystemSettings by remember(context) {
         mutableStateOf(Settings.System.canWrite(context))
@@ -2041,22 +1961,14 @@ private fun PlaybackFullscreenGestureSettingsSection(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
-    val inlineSwipeSeekSeconds by com.android.purebilibili.core.store.SettingsManager
-        .getInlineSwipeSeekSeconds(context).collectAsStateWithLifecycle(initialValue = 30)
-    val fullscreenSwipeSeekEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getFullscreenSwipeSeekEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val fullscreenSwipeSeekSeconds by com.android.purebilibili.core.store.SettingsManager
-        .getFullscreenSwipeSeekSeconds(context).collectAsStateWithLifecycle(initialValue = 15)
-    val swipeSeekUseRelativeDuration by SettingsManager
-        .getSwipeSeekUseRelativeDuration(context).collectAsStateWithLifecycle(initialValue = false)
-    val swipeSeekRelativePercent by SettingsManager
-        .getSwipeSeekRelativePercent(context).collectAsStateWithLifecycle(initialValue = 90)
-    val doubleTapSeekEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getDoubleTapSeekEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-    val seekForwardSeconds by com.android.purebilibili.core.store.SettingsManager
-        .getSeekForwardSeconds(context).collectAsStateWithLifecycle(initialValue = 10)
-    val seekBackwardSeconds by com.android.purebilibili.core.store.SettingsManager
-        .getSeekBackwardSeconds(context).collectAsStateWithLifecycle(initialValue = 10)
+    val inlineSwipeSeekSeconds = playerConfiguration.inlineSwipeSeekSeconds
+    val fullscreenSwipeSeekEnabled = playerConfiguration.fullscreenSwipeSeekEnabled
+    val fullscreenSwipeSeekSeconds = playerConfiguration.fullscreenSwipeSeekSeconds
+    val swipeSeekUseRelativeDuration = playerConfiguration.swipeSeekUseRelativeDuration
+    val swipeSeekRelativePercent = playerConfiguration.swipeSeekRelativePercent
+    val doubleTapSeekEnabled = playerConfiguration.doubleTapSeekEnabled
+    val seekForwardSeconds = playerConfiguration.seekForwardSeconds
+    val seekBackwardSeconds = playerConfiguration.seekBackwardSeconds
     if (showSystemBrightnessPermissionDialog) {
         com.android.purebilibili.core.ui.AppAlertDialog(
             onDismissRequest = { showSystemBrightnessPermissionDialog = false },
@@ -2106,7 +2018,7 @@ private fun PlaybackFullscreenGestureSettingsSection(
         AppSliderDialogPreference(
             title = "手势灵敏度",
             subtitle = "调整快进、音量和亮度手势的响应速度",
-            value = state.gestureSensitivity,
+            value = playerConfiguration.gestureSensitivity,
             onValueChange = viewModel::setGestureSensitivity,
             valueRange = 0.5f..2.0f,
             steps = 5,
@@ -2230,8 +2142,7 @@ SettingsItemAnchor("playback.portrait_player_collapse_mode") {
             )
         }
 
-        val pauseOnPlayerCollapseEnabled by com.android.purebilibili.core.store.SettingsManager
-            .getPauseOnPlayerCollapseEnabled(context)
+        val pauseOnPlayerCollapseEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getPauseOnPlayerCollapseEnabled(context) }
             .collectAsStateWithLifecycle(initialValue = true)
         AppPreferenceDivider()
         SettingsItemAnchor("playback.pause_on_player_collapse_enabled") {
@@ -2521,42 +2432,26 @@ SettingsItemAnchor("playback.fullscreen_swipe_seek_seconds") {
 }
         }
         AppPreferenceDivider()
-        val autoRotateEnabled by com.android.purebilibili.core.store.SettingsManager
-            .getAutoRotateEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-        val fullscreenGestureReverse by com.android.purebilibili.core.store.SettingsManager
-            .getFullscreenGestureReverse(context).collectAsStateWithLifecycle(initialValue = false)
-        val autoEnterFullscreen by com.android.purebilibili.core.store.SettingsManager
-            .getAutoEnterFullscreen(context).collectAsStateWithLifecycle(initialValue = false)
-        val autoExitFullscreen by com.android.purebilibili.core.store.SettingsManager
-            .getAutoExitFullscreen(context).collectAsStateWithLifecycle(initialValue = true)
-        val showFullscreenLockButton by com.android.purebilibili.core.store.SettingsManager
-            .getShowFullscreenLockButton(context).collectAsStateWithLifecycle(initialValue = true)
-        val showFullscreenScreenshotButton by com.android.purebilibili.core.store.SettingsManager
-            .getShowFullscreenScreenshotButton(context).collectAsStateWithLifecycle(initialValue = true)
-        val appGestureScreenshotEnabled by SettingsManager
-            .getAppGestureScreenshotEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-        val appScreenshotGestureMode by SettingsManager
-            .getAppScreenshotGestureMode(context)
+        val autoRotateEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getAutoRotateEnabled(context) }.collectAsStateWithLifecycle(initialValue = false)
+        val fullscreenGestureReverse = playerConfiguration.fullscreenGestureReverse
+        val autoEnterFullscreen = playerConfiguration.autoEnterFullscreenEnabled
+        val autoExitFullscreen = playerConfiguration.autoExitFullscreenEnabled
+        val showFullscreenLockButton by remember(context) { com.android.purebilibili.core.store.SettingsManager.getShowFullscreenLockButton(context) }.collectAsStateWithLifecycle(initialValue = true)
+        val showFullscreenScreenshotButton by remember(context) { com.android.purebilibili.core.store.SettingsManager.getShowFullscreenScreenshotButton(context) }.collectAsStateWithLifecycle(initialValue = true)
+        val appGestureScreenshotEnabled by remember(context) { SettingsManager.getAppGestureScreenshotEnabled(context) }.collectAsStateWithLifecycle(initialValue = false)
+        val appScreenshotGestureMode by remember(context) { SettingsManager.getAppScreenshotGestureMode(context) }
             .collectAsStateWithLifecycle(initialValue = AppScreenshotGestureMode.TOP_RIGHT_TWO_FINGER_LONG_PRESS)
-        val appScreenshotCaptureMode by SettingsManager
-            .getAppScreenshotCaptureMode(context)
+        val appScreenshotCaptureMode by remember(context) { SettingsManager.getAppScreenshotCaptureMode(context) }
             .collectAsStateWithLifecycle(initialValue = AppScreenshotCaptureMode.FULL_WINDOW)
-        val showFullscreenBatteryLevel by com.android.purebilibili.core.store.SettingsManager
-            .getShowFullscreenBatteryLevel(context).collectAsStateWithLifecycle(initialValue = true)
-        val showFullscreenTime by com.android.purebilibili.core.store.SettingsManager
-            .getShowFullscreenTime(context).collectAsStateWithLifecycle(initialValue = true)
-        val showFullscreenActionItems by com.android.purebilibili.core.store.SettingsManager
-            .getShowFullscreenActionItems(context).collectAsStateWithLifecycle(initialValue = true)
-        val showOnlineCount by com.android.purebilibili.core.store.SettingsManager
-            .getShowOnlineCount(context).collectAsStateWithLifecycle(initialValue = false)
-        val bottomProgressBehavior by com.android.purebilibili.core.store.SettingsManager
-            .getBottomProgressBehavior(context)
+        val showFullscreenBatteryLevel by remember(context) { com.android.purebilibili.core.store.SettingsManager.getShowFullscreenBatteryLevel(context) }.collectAsStateWithLifecycle(initialValue = true)
+        val showFullscreenTime by remember(context) { com.android.purebilibili.core.store.SettingsManager.getShowFullscreenTime(context) }.collectAsStateWithLifecycle(initialValue = true)
+        val showFullscreenActionItems by remember(context) { com.android.purebilibili.core.store.SettingsManager.getShowFullscreenActionItems(context) }.collectAsStateWithLifecycle(initialValue = true)
+        val showOnlineCount by remember(context) { com.android.purebilibili.core.store.SettingsManager.getShowOnlineCount(context) }.collectAsStateWithLifecycle(initialValue = false)
+        val bottomProgressBehavior by remember(context) { com.android.purebilibili.core.store.SettingsManager.getBottomProgressBehavior(context) }
             .collectAsStateWithLifecycle(initialValue = BottomProgressBehavior.ALWAYS_HIDE)
-        val progressPeakDanmakuEnabled by SettingsManager
-            .getProgressPeakDanmakuEnabled(context)
+        val progressPeakDanmakuEnabled by remember(context) { SettingsManager.getProgressPeakDanmakuEnabled(context) }
             .collectAsStateWithLifecycle(initialValue = false)
-        val playerControlVisibility by SettingsManager
-            .getPlayerControlVisibilitySettings(context)
+        val playerControlVisibility by remember(context) { SettingsManager.getPlayerControlVisibilitySettings(context) }
             .collectAsStateWithLifecycle(
                 initialValue = com.android.purebilibili.core.store.PlayerControlVisibilitySettings()
             )
@@ -2564,26 +2459,18 @@ SettingsItemAnchor("playback.fullscreen_swipe_seek_seconds") {
         val displayContext = LocalAppWindowAdaptiveInfo.current.displayContext
         val isLargeScreenDevice = windowSizeClass.isTabletDevice ||
             displayContext.isKnownFoldableDevice
-        val horizontalAdaptationEnabled by com.android.purebilibili.core.store.SettingsManager
-            .getHorizontalAdaptationEnabled(context)
+        val horizontalAdaptationEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getHorizontalAdaptationEnabled(context) }
             .collectAsStateWithLifecycle(initialValue = isLargeScreenDevice)
-        val videoAmbientSettings by SettingsManager.getVideoAmbientSettings(context)
+        val videoAmbientSettings by remember(context) { SettingsManager.getVideoAmbientSettings(context) }
             .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.feature.video.ambient.AmbientSettings())
-        val immersiveVideoPageStatusBar by com.android.purebilibili.core.store.SettingsManager
-            .getHideVideoPageStatusBar(context)
+        val immersiveVideoPageStatusBar by remember(context) { com.android.purebilibili.core.store.SettingsManager.getHideVideoPageStatusBar(context) }
             .collectAsStateWithLifecycle(initialValue = false)
-        val tabletCommentPanelWidthPreset by com.android.purebilibili.core.store.SettingsManager
-            .getTabletCommentPanelWidthPreset(context)
-            .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.TabletCommentPanelWidthPreset.STANDARD)
-        val tabletSecondaryDefaultTab by com.android.purebilibili.core.store.SettingsManager
-            .getTabletSecondaryDefaultTab(context)
+        val tabletCommentPanelWidthPreset = playerConfiguration.tabletCommentPanelWidthPreset
+        val tabletSecondaryDefaultTab by remember(context) { com.android.purebilibili.core.store.SettingsManager.getTabletSecondaryDefaultTab(context) }
             .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.TabletSecondaryDefaultTab.RELATED)
-        val fullscreenMode by com.android.purebilibili.core.store.SettingsManager
-            .getFullscreenMode(context)
+        val fullscreenMode by remember(context) { com.android.purebilibili.core.store.SettingsManager.getFullscreenMode(context) }
             .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.FullscreenMode.AUTO)
-        val fullscreenAspectRatio by com.android.purebilibili.core.store.SettingsManager
-            .getFullscreenAspectRatio(context)
-            .collectAsStateWithLifecycle(initialValue = FullscreenAspectRatio.FIT)
+        val fullscreenAspectRatio = playerConfiguration.fixedFullscreenAspectRatio
         val fullscreenModeSubtitle = when {
             !autoRotateEnabled -> fullscreenMode.description
             isLargeScreenDevice ->
@@ -2769,7 +2656,24 @@ SettingsItemAnchor("playback.fullscreen_aspect_ratio") {
                 iconTint = AppContentColors.secondaryText(),
             )
         }
-        if (videoAmbientSettings.enabled) {
+        val animateAmbientOptions = com.android.purebilibili.core.ui.LocalComponentMotionEnabled.current &&
+            !com.android.purebilibili.core.ui.motion.rememberSystemReduceMotion()
+        androidx.compose.animation.AnimatedVisibility(
+            visible = videoAmbientSettings.enabled,
+            enter = if (animateAmbientOptions) androidx.compose.animation.expandVertically(
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 180,
+                    easing = com.android.purebilibili.core.ui.motion.AppMotionEasing.Continuity,
+                ),
+            ) else androidx.compose.animation.EnterTransition.None,
+            exit = if (animateAmbientOptions) androidx.compose.animation.shrinkVertically(
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 140,
+                    easing = com.android.purebilibili.core.ui.motion.AppMotionEasing.Continuity,
+                ),
+            ) else androidx.compose.animation.ExitTransition.None,
+        ) {
+            Column {
             AppPreferenceDivider()
 SettingsItemAnchor("playback.video_ambient_settings.strength") {
             SettingsSingleChoicePreference(
@@ -2798,6 +2702,7 @@ SettingsItemAnchor("playback.video_ambient_settings.power_saving") {
             )
 }
         }
+        }
         AppPreferenceDivider()
             SettingsItemAnchor("playback.immersive_video_page_status_bar") {
                 AppSwitchPreference(
@@ -2819,9 +2724,7 @@ SettingsItemAnchor("playback.video_ambient_settings.power_saving") {
             )
             }
         AppPreferenceDivider()
-        val portraitLetterboxAmbientHaze by com.android.purebilibili.core.store.SettingsManager
-            .getPortraitLetterboxAmbientHaze(context)
-            .collectAsStateWithLifecycle(initialValue = true)
+        val portraitLetterboxAmbientHaze = playerConfiguration.portraitLetterboxAmbientHaze
         SettingsItemAnchor("playback.portrait_letterbox_ambient_haze") {
             AppSwitchPreference(
                 icon = rememberSettingsSemanticIcon(SettingsIconRole.PORTRAIT_AMBIENT_HAZE),
@@ -2858,11 +2761,7 @@ SettingsItemAnchor("playback.video_ambient_settings.power_saving") {
             )
             }
         AppPreferenceDivider()
-        val autoExitFullscreenMode by com.android.purebilibili.core.store.SettingsManager
-            .getAutoExitFullscreenMode(context)
-            .collectAsStateWithLifecycle(
-                initialValue = com.android.purebilibili.core.store.AutoExitFullscreenMode.ALL_PARTS
-            )
+        val autoExitFullscreenMode = playerConfiguration.autoExitFullscreenMode
             SettingsItemAnchor("playback.auto_exit_fullscreen_mode") {
                 AppSwitchPreference(
                     icon = rememberSettingsSemanticIcon(SettingsIconRole.AUTO_EXIT_FULLSCREEN),
@@ -2988,6 +2887,19 @@ SettingsItemAnchor("playback.app_screenshot_capture_mode") {
         )
 }
         AppPreferenceDivider()
+        SettingsItemAnchor("playback.show_online_count") {
+            AppSwitchPreference(
+                icon = rememberSettingsSemanticIcon(SettingsIconRole.ONLINE_COUNT),
+                title = playbackSettingTitle("playback.show_online_count"),
+                subtitle = "在视频详情和播放器显示同时观看人数，不影响卡片",
+                checked = showOnlineCount,
+                onCheckedChange = { enabled ->
+                    scope.launch { SettingsManager.setShowOnlineCount(context, enabled) }
+                },
+                iconTint = AppContentColors.secondaryText(),
+            )
+        }
+        AppPreferenceDivider()
             SettingsItemAnchor("playback.show_fullscreen_battery_level") {
                 AppSwitchPreference(
                     icon = rememberSettingsSemanticIcon(SettingsIconRole.BATTERY_STATUS),
@@ -3088,20 +3000,15 @@ internal fun PlaybackDiagnosticsSection() {
     val context = LocalContext.current
     val playbackInsightScope = rememberCoroutineScope()
     val scope = playbackInsightScope
-    val playerInsightMode by SettingsManager
-        .getPlayerInsightMode(context)
+    val playerInsightMode by remember(context) { SettingsManager.getPlayerInsightMode(context) }
         .collectAsStateWithLifecycle(initialValue = SettingsManager.getPlayerInsightModeSync(context))
-    val playerDiagnosticLoggingEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getPlayerDiagnosticLoggingEnabled(context)
+    val playerDiagnosticLoggingEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getPlayerDiagnosticLoggingEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_PLAYER_DIAGNOSTIC_LOGGING_ENABLED)
-    val dashSegmentRequestsEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getDashSegmentRequestsEnabled(context)
+    val dashSegmentRequestsEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getDashSegmentRequestsEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_DASH_SEGMENT_REQUESTS_ENABLED)
-    val qualitySwitchFailureDialogEnabled by SettingsManager
-        .getQualitySwitchFailureDialogEnabled(context)
+    val qualitySwitchFailureDialogEnabled by remember(context) { SettingsManager.getQualitySwitchFailureDialogEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_QUALITY_SWITCH_FAILURE_DIALOG_ENABLED)
-    val qualitySwitchFailureDialogOnceEnabled by SettingsManager
-        .getQualitySwitchFailureDialogOnceEnabled(context)
+    val qualitySwitchFailureDialogOnceEnabled by remember(context) { SettingsManager.getQualitySwitchFailureDialogOnceEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_QUALITY_SWITCH_FAILURE_DIALOG_ONCE_ENABLED)
     AppPreferenceGroup {
 SettingsItemAnchor("playback.player_insight_mode") {

@@ -363,14 +363,13 @@ private fun NavDisplayLayout(
     val currentKeyList = backStack.toList()
     // Covered entries stay composed, so clear their focus when the top entry changes.
     val previousTopKey = remember { arrayOfNulls<NavKey>(1) }
-    DisposableEffect(currentKeyList.lastOrNull()) {
-        val currentTopKey = currentKeyList.lastOrNull()
+    val currentTopKey = currentKeyList.lastOrNull()
+    SideEffect {
         val previous = previousTopKey[0]
         if (previous != null && previous != currentTopKey) {
             focusManager.clearFocus()
         }
         previousTopKey[0] = currentTopKey
-        onDispose { }
     }
     // Plain (non-snapshot) holder for the previous classification input; bookkeeping only, never read
     // by UI, so it must not be snapshot state (no cross-phase back-write).

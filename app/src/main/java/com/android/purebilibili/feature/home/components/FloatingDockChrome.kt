@@ -473,7 +473,7 @@ internal fun BoxScope.BiliPaiFloatingDockIndicator(
     ) { wobblePosition }
     val recoilStretch: () -> Float = {
         com.android.purebilibili.core.ui.animation.resolveLiquidIndicatorRecoilStretch(
-            wobble.value, !wobbleInteracting && (wobble.isSelectionMotion || canRecoil),
+            wobble.value, !wobbleInteracting && canRecoil,
         )
     }
     val recoilDirection = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1f else -1f

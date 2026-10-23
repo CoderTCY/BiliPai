@@ -99,6 +99,17 @@ class DampedDragAnimation(
     val scaleY: Float get() = scaleYAnimation.value
     val velocity: Float get() = if (useMiuixIndicatorMotion) miuixVelocityAnimation.value else velocityAnimation.value
 
+    /** Glass-only landing feedback overlaps shrink instead of waiting for all springs to stop. */
+    val isReadyForRecoil: Boolean get() =
+        com.android.purebilibili.core.ui.animation.canStartLiquidIndicatorRecoil(
+            position = value,
+            target = targetValue,
+            range = valueRange.endInclusive - valueRange.start,
+            interactionActive = isDragging,
+            returning = pressProgressAnimation.targetValue == 0f &&
+                scaleXAnimation.targetValue == initialScale && scaleYAnimation.targetValue == initialScale,
+        )
+
     var isDragging by mutableStateOf(false)
         private set
 

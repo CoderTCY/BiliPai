@@ -12,6 +12,30 @@ import kotlin.test.assertTrue
 class AppNavigationSettingsMappingPolicyTest {
 
     @Test
+    fun editorReceivesSavedOrderAndHiddenItemsAlongsideRuntimeProjection() {
+        val prefs = mutablePreferencesOf(
+            stringPreferencesKey("bottom_bar_order") to "PROFILE,HOME,FAVORITE,DYNAMIC",
+            stringPreferencesKey("bottom_bar_visible_tabs") to "PROFILE,HOME",
+            intPreferencesKey("bottom_bar_visibility_mode") to SettingsManager.BottomBarVisibilityMode.SCROLL_HIDE.value,
+            booleanPreferencesKey("bottom_bar_scroll_compact_enabled") to true,
+            booleanPreferencesKey("bottom_bar_floating") to true,
+        )
+        val settings = mapAppNavigationSettingsFromPreferences(prefs)
+
+        assertEquals(listOf("PROFILE", "HOME", "FAVORITE", "DYNAMIC"), settings.bottomBarOrder)
+        assertEquals(setOf("PROFILE", "HOME"), settings.bottomBarVisibleTabs)
+        assertEquals(listOf("PROFILE", "HOME"), settings.orderedVisibleTabIds)
+        assertEquals(SettingsManager.BottomBarVisibilityMode.SCROLL_HIDE, settings.savedBottomBarVisibilityMode)
+        assertEquals(SettingsManager.BottomBarVisibilityMode.SCROLL_HIDE, settings.bottomBarVisibilityMode)
+    }
+
+    @Test
+    fun editorPreservesExplicitEmptyVisibilityInsteadOfSubstitutingDefaults() {
+        val prefs = mutablePreferencesOf(stringPreferencesKey("bottom_bar_visible_tabs") to "")
+        assertEquals(emptySet(), mapAppNavigationSettingsFromPreferences(prefs).bottomBarVisibleTabs)
+    }
+
+    @Test
     fun indicatorWobbleDefaultsEnabledAndKeepsExplicitChoice() {
         val key = booleanPreferencesKey("liquid_indicator_wobble_enabled")
         assertTrue(AppNavigationSettings().liquidIndicatorWobbleEnabled)
@@ -31,7 +55,7 @@ class AppNavigationSettingsMappingPolicyTest {
         )
         assertTrue(HomeSettings().bottomBarScrollCompactEnabled)
         assertTrue(mapHomeSettingsFromPreferences(prefs).bottomBarScrollCompactEnabled)
-        assertEquals(SettingsManager.BottomBarVisibilityMode.ALWAYS_VISIBLE,
+        assertEquals(SettingsManager.BottomBarVisibilityMode.SCROLL_HIDE,
             mapAppNavigationSettingsFromPreferences(prefs).bottomBarVisibilityMode)
         prefs[compact] = false
         assertFalse(mapHomeSettingsFromPreferences(prefs).bottomBarScrollCompactEnabled)
@@ -40,27 +64,24 @@ class AppNavigationSettingsMappingPolicyTest {
     }
 
     @Test
-    fun compactNavigationReplacesScrollHideWithoutChangingStoredPreference() {
+    fun explicitVisibilityModeWinsForEveryDockCompactAndFloatingCombination() {
         val mode = intPreferencesKey("bottom_bar_visibility_mode")
         val compact = booleanPreferencesKey("bottom_bar_scroll_compact_enabled")
-        val prefs = mutablePreferencesOf(
-            mode to SettingsManager.BottomBarVisibilityMode.SCROLL_HIDE.value,
-            compact to true,
-        )
-        assertEquals(SettingsManager.BottomBarVisibilityMode.ALWAYS_VISIBLE,
-            mapAppNavigationSettingsFromPreferences(prefs).bottomBarVisibilityMode)
-        assertEquals(SettingsManager.BottomBarVisibilityMode.SCROLL_HIDE.value, prefs[mode])
-        prefs[compact] = false
-        assertEquals(SettingsManager.BottomBarVisibilityMode.SCROLL_HIDE,
-            mapAppNavigationSettingsFromPreferences(prefs).bottomBarVisibilityMode)
-        prefs[compact] = true
-        prefs[booleanPreferencesKey("bottom_bar_floating")] = false
-        assertEquals(SettingsManager.BottomBarVisibilityMode.SCROLL_HIDE,
-            mapAppNavigationSettingsFromPreferences(prefs).bottomBarVisibilityMode)
-        prefs[mode] = SettingsManager.BottomBarVisibilityMode.ALWAYS_HIDDEN.value
-        prefs[booleanPreferencesKey("bottom_bar_floating")] = true
-        assertEquals(SettingsManager.BottomBarVisibilityMode.ALWAYS_HIDDEN,
-            mapAppNavigationSettingsFromPreferences(prefs).bottomBarVisibilityMode)
+        val floating = booleanPreferencesKey("bottom_bar_floating")
+        for (visibility in SettingsManager.BottomBarVisibilityMode.entries) {
+            for (compactEnabled in listOf(false, true)) {
+                for (floatingEnabled in listOf(false, true)) {
+                    val prefs = mutablePreferencesOf(
+                        mode to visibility.value, compact to compactEnabled, floating to floatingEnabled,
+                    )
+                    val mapped = mapAppNavigationSettingsFromPreferences(prefs)
+                    assertEquals(visibility, mapped.bottomBarVisibilityMode)
+                    assertEquals(visibility, mapped.savedBottomBarVisibilityMode)
+                    assertEquals(visibility.value, prefs[mode])
+                    assertEquals(compactEnabled, mapHomeSettingsFromPreferences(prefs).bottomBarScrollCompactEnabled)
+                }
+            }
+        }
     }
 
     @Test

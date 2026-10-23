@@ -192,6 +192,11 @@ object AccountSessionStore {
         val current = getAccounts(context)
         if (current.none { it.mid == mid }) return false
 
+        current.firstOrNull { it.mid == mid }?.let { account ->
+            com.android.purebilibili.core.network.AccountCookieStore.remove(
+                context, com.android.purebilibili.core.network.AccountCookieSession.from(account)
+            )
+        }
         val updated = current.filterNot { it.mid == mid }
         persistAccounts(context, updated)
 

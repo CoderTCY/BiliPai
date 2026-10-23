@@ -476,6 +476,7 @@ internal fun BoxScope.BottomBarMatchedLiquidIndicator(
     interactionModifier: Modifier = Modifier,
     wobblePosition: (() -> Float)? = null,
     wobbleSelection: (() -> Any?)? = null,
+    wobbleReady: (() -> Boolean)? = null,
     wobbleLastIndex: Int = -1,
 ) {
     // Miuix-only indicator path. Null backdrop degrades to solid surface inside the layer.
@@ -511,6 +512,7 @@ internal fun BoxScope.BottomBarMatchedLiquidIndicator(
         interactionModifier = interactionModifier,
         wobblePosition = wobblePosition,
         wobbleSelection = wobbleSelection,
+        wobbleReady = wobbleReady,
         wobbleLastIndex = wobbleLastIndex,
     )
 }

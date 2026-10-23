@@ -27,7 +27,7 @@ private fun resolvePlaybackScopeInputs(): List<String> {
     return listOf(
         account?.sessData ?: TokenManager.sessDataCache,
         account?.mid?.toString() ?: TokenManager.midCache?.toString(),
-        account?.accessToken?.takeIf { it.isNotBlank() } ?: TokenManager.accessTokenCache,
+        if (account != null) account.accessToken else TokenManager.accessTokenCache,
         account?.accessTokenPlatform ?: TokenManager.accessTokenPlatformCache,
         (account?.isVip ?: TokenManager.isVipCache).toString()
     ).map { it.orEmpty() }

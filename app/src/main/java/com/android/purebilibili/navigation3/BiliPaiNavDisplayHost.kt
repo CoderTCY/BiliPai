@@ -158,7 +158,16 @@ internal fun BiliPaiNavDisplayHost(
         resolveVideoHeroMotionSpec(videoSharedTransitionDurationMillis,
             sourceMetadata.sourceBounds, hostBounds, density, reduceMotion)
     }
-    val application = LocalContext.current.applicationContext as Application
+    val context = LocalContext.current
+    val application = context.applicationContext as Application
+    val visualGuard = com.android.purebilibili.core.ui.performance.LocalRuntimeVisualGuard.current
+    // 在图层阶段读取运行时预算，降级不重建整棵导航树；玻璃与原生路径共用此保护。
+    val navBlurMotionTierProvider = remember(visualGuard) {
+        {
+            val decision = visualGuard.value
+            if (decision.forceLowBlurBudget) MotionTier.Reduced else decision.effectiveMotionTier
+        }
+    }
     val speedSettings = LocalVideoSharedTransitionSpeedSettings.current
     val diagnosticConfiguration by rememberUpdatedState(
         "speed=${speedSettings.speed} custom_duration=${speedSettings.customDurationMillis} " +
@@ -232,6 +241,7 @@ internal fun BiliPaiNavDisplayHost(
         isLightBackground,
         miuixTransitionBlurEnabled,
         miuixPredictiveBackMaxProgressPercent,
+        navBlurMotionTierProvider,
     ) {
         biliPaiMiuixNavTransition(
             animation = style,
@@ -240,6 +250,7 @@ internal fun BiliPaiNavDisplayHost(
             miuixTransitionBlurEnabled = miuixTransitionBlurEnabled,
             miuixPredictiveBackMaxProgressPercent =
                 miuixPredictiveBackMaxProgressPercent,
+            blurMotionTierProvider = navBlurMotionTierProvider,
         )
     }
     val predictiveBackExcludedTransition = remember(
@@ -248,6 +259,7 @@ internal fun BiliPaiNavDisplayHost(
         predictiveBackExitDirection,
         isLightBackground,
         miuixTransitionBlurEnabled,
+        navBlurMotionTierProvider,
     ) {
         if (shouldUseMiuixPredictiveBackProgress(style, enabled = true)) {
             biliPaiMiuixNavTransition(
@@ -256,6 +268,7 @@ internal fun BiliPaiNavDisplayHost(
                 isLightBackground = isLightBackground,
                 miuixTransitionBlurEnabled = miuixTransitionBlurEnabled,
                 miuixPredictiveBackProgressEnabled = false,
+                blurMotionTierProvider = navBlurMotionTierProvider,
             )
         } else {
             globalTransition
@@ -749,9 +762,7 @@ internal fun BiliPaiNavDisplayHost(
     // 全屏滑动返回默认关闭（仅系统边缘预测返回），可在设置中开启。
     // 开启后仅对列表/设置等纵向页面生效，播放器、详情、WebView 等
     // 横滑冲突页面始终禁用（见 BiliPaiNavEntryProvider）。
-    val fullScreenSwipeBackEnabled by
-        com.android.purebilibili.core.store.SettingsManager
-            .getFullScreenSwipeBackEnabled(LocalContext.current)
+    val fullScreenSwipeBackEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getFullScreenSwipeBackEnabled(context) }
             .collectAsStateWithLifecycle(initialValue = false)
     val swipeBackDirection = if (fullScreenSwipeBackEnabled) {
         when (LocalLayoutDirection.current) {
@@ -764,16 +775,13 @@ internal fun BiliPaiNavDisplayHost(
     val interceptPredictiveBack =
         style == BiliPaiPredictiveBackAnimationStyle.NONE && backStack.size > 1
     val globalWallpaperVisible = LocalGlobalWallpaperBackdropVisible.current
-    val clickToPlayEnabled by com.android.purebilibili.core.store.SettingsManager
-        .getClickToPlay(LocalContext.current)
+    val clickToPlayEnabled by remember(context) { com.android.purebilibili.core.store.SettingsManager.getClickToPlay(context) }
         .collectAsStateWithLifecycle(
             initialValue = com.android.purebilibili.core.store.SettingsManager.getClickToPlaySync(LocalContext.current)
         )
-    val dynamicImagePreviewTextVisible by com.android.purebilibili.core.store.SettingsManager
-        .getDynamicImagePreviewTextVisible(LocalContext.current)
+    val dynamicImagePreviewTextVisible by remember(context) { com.android.purebilibili.core.store.SettingsManager.getDynamicImagePreviewTextVisible(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val dynamicCommentPreviewVisible by com.android.purebilibili.core.store.home.DynamicSettingsStore
-        .observeCommentPreviewVisible(LocalContext.current)
+    val dynamicCommentPreviewVisible by remember(context) { com.android.purebilibili.core.store.home.DynamicSettingsStore.observeCommentPreviewVisible(context) }
         .collectAsStateWithLifecycle(initialValue = false)
 
     Box(
@@ -897,7 +905,7 @@ private fun BiliPaiMiuixNavEntry(
         isBackEnabled = interceptPredictiveBack,
         onBackCompleted = onBack,
     )
-    content()
+    com.android.purebilibili.core.ui.animation.ProvideNavigationEntranceState(content)
 }
 
 @Composable

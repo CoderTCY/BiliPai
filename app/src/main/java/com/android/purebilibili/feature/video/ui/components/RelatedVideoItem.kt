@@ -11,7 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -474,7 +473,7 @@ fun RelatedVideoItem(
 internal fun RelatedVideoGridRow(
     videos: List<RelatedVideo>,
     cardLayout: HomeFeedCardLayout,
-    cardPresentation: RelatedVideoCardLayout? = null,
+    cardPresentation: RelatedVideoCardLayout,
     followingMids: Set<Long> = emptySet(),
     showUpBadge: Boolean = true,
     onVideoClick: (RelatedVideo) -> Unit,
@@ -488,26 +487,22 @@ internal fun RelatedVideoGridRow(
     }
     var isBlockingCreator by remember { mutableStateOf(false) }
     val blockedUpRepository = remember { BlockedUpRepository.getInstance(context) }
-    BoxWithConstraints(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = cardLayout.outerPaddingDp.dp, vertical = 2.dp)
     ) {
-        val resolvedCardPresentation = cardPresentation
-            ?: resolveRelatedVideoCardLayout(maxWidth.value.toInt())
-        Row(modifier = Modifier.fillMaxWidth()) {
         videos.firstOrNull()?.let { video ->
             RelatedVideoItem(
                 video = video,
                 isFollowed = video.owner.mid in followingMids,
                 showUpBadge = showUpBadge,
                 coverAspectRatio = cardLayout.coverAspectRatio,
-                stacked = resolvedCardPresentation == RelatedVideoCardLayout.STACKED,
+                stacked = cardPresentation == RelatedVideoCardLayout.STACKED,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = { onVideoClick(video) },
                 onMoreClick = { actionVideo = video }
             )
-        }
         }
     }
 

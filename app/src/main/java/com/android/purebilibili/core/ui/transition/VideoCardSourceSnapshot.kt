@@ -26,6 +26,8 @@ internal data class VideoCardSourceInfoPresentation(
      * When false, those live on the cover overlay and must not appear under the title.
      */
     val showStatsInInfo: Boolean = false,
+    /** Stacked feed cards place the uploader above off-cover statistics. */
+    val ownerBeforeStats: Boolean = false,
     /**
      * Whether duration is painted in the source card's information region.
      *
@@ -123,9 +125,11 @@ internal fun resolveVideoCardSourceInfoPresentation(
     ownerBeforePublish: Boolean = false,
     useTintedInfoSurface: Boolean = false,
     showOverflowMenu: Boolean = false,
+    ownerBeforeStats: Boolean = false,
 ): VideoCardSourceInfoPresentation = VideoCardSourceInfoPresentation(
     publishTimeText = publishTimeText.trim(),
     showStatsInInfo = showStatsInInfo,
+    ownerBeforeStats = ownerBeforeStats,
     showDurationInInfo = showDurationInInfo,
     ownerBeforePublish = ownerBeforePublish,
     useTintedInfoSurface = useTintedInfoSurface,

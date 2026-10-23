@@ -290,7 +290,7 @@ fun CommonListScreen(
     // 平板端(Expanded)使用较大的最小宽度以避免卡片过小
     val context = LocalContext.current
     val density = LocalDensity.current
-    val showOnlineCount by SettingsManager.getShowOnlineCount(context).collectAsStateWithLifecycle(initialValue = false
+    val showOnlineCount by SettingsManager.getShowCardOnlineCount(context).collectAsStateWithLifecycle(initialValue = false
         )
     val homeSettings by SettingsManager.getHomeSettings(context).collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.HomeSettings(),
         context = kotlin.coroutines.EmptyCoroutineContext

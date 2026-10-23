@@ -329,7 +329,7 @@ internal fun resolveSettingsMaterialSymbolResource(role: SettingsIconRole): Int 
     SettingsIconRole.NOTIFICATION_DELIVERY_MODE -> R.drawable.ms_notification_settings_24
     SettingsIconRole.HOME_UP_AVATAR -> R.drawable.ms_account_circle_24
     SettingsIconRole.FULL_VIDEO_CARD_CONTENT -> R.drawable.ms_notes_24
-    SettingsIconRole.ONLINE_COUNT -> R.drawable.ms_online_prediction_24
+    SettingsIconRole.ONLINE_COUNT -> R.drawable.ms_groups_24
     SettingsIconRole.GRID_COLUMNS -> R.drawable.ms_grid_view_24
     SettingsIconRole.HOME_CARD_WIDTH -> R.drawable.ms_width_normal_24
     SettingsIconRole.CARD_ENTRANCE_ANIMATION -> R.drawable.ms_auto_awesome_motion_24

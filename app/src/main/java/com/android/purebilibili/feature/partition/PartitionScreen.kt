@@ -1083,6 +1083,7 @@ private fun PartitionSideRailMovingIndicator(
                 orientation = BottomBarLiquidOrientation.VERTICAL,
                 wobblePosition = { dragAnimation.value },
                 wobbleSelection = { dragAnimation.targetValue.roundToInt() },
+                wobbleReady = { dragAnimation.isReadyForRecoil },
                 wobbleLastIndex = dragAnimation.valueRange.endInclusive.roundToInt(),
                 indicatorAlignment = Alignment.TopStart,
                 interactionModifier = interactionModifier,

@@ -1,5 +1,7 @@
 package com.android.purebilibili.feature.home.components
 
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -22,6 +24,14 @@ internal data class BiliPaiBottomBarSearchLayoutState(
     val searchGap: State<Dp>,
     val launchAdjustedSearchGap: State<Dp>,
     val shellHeight: State<Dp>
+)
+
+private data class BottomBarSearchGeometry(
+    val dockWidth: Dp,
+    val dockHeight: Dp,
+    val searchWidth: Dp,
+    val searchHeight: Dp,
+    val gap: Dp,
 )
 
 @Composable
@@ -85,33 +95,33 @@ internal fun rememberBiliPaiBottomBarSearchLayoutState(
         }
     }
 
-    val dockWidth = animateDpAsState(
-        targetValue = targetSearchLayout.dockWidth,
-        animationSpec = bottomBarDockWidthMotionSpec(),
-        label = "bottomBarDockWidth"
-    )
-    val searchWidth = animateDpAsState(
-        targetValue = targetSearchLayout.searchWidth,
-        animationSpec = bottomBarDockWidthMotionSpec(),
-        label = "bottomBarSearchWidth"
-    )
-    val searchGap = animateDpAsState(
-        targetValue = targetSearchLayout.gap,
-        animationSpec = bottomBarSearchGapMotionSpec(),
-        label = "bottomBarSearchGap"
-    )
-    val dockHeight = animateDpAsState(
-        targetValue = targetDockHeight,
-        animationSpec = bottomBarChromeHeightMotionSpec(),
-        label = "bottomBarDockHeight"
-    )
-    val searchHeight = animateDpAsState(
-        targetValue = resolveBiliPaiBottomBarSearchHeight(
-            searchExpanded = searchExpanded
+    // One transition owns all geometry so a reversal starts from the displayed sizes
+    // and width, height and spacing reach their targets together.
+    val geometry = updateTransition(
+        targetState = BottomBarSearchGeometry(
+            targetSearchLayout.dockWidth,
+            targetDockHeight,
+            targetSearchLayout.searchWidth,
+            resolveBiliPaiBottomBarSearchHeight(searchExpanded = searchExpanded),
+            targetSearchLayout.gap,
         ),
-        animationSpec = bottomBarChromeHeightMotionSpec(),
-        label = "bottomBarSearchHeight"
+        label = "bottomBarSearchGeometry",
     )
+    val dockWidth = geometry.animateDp(
+        transitionSpec = { bottomBarDockWidthMotionSpec() }, label = "bottomBarDockWidth",
+    ) { it.dockWidth }
+    val searchWidth = geometry.animateDp(
+        transitionSpec = { bottomBarDockWidthMotionSpec() }, label = "bottomBarSearchWidth",
+    ) { it.searchWidth }
+    val searchGap = geometry.animateDp(
+        transitionSpec = { bottomBarDockWidthMotionSpec() }, label = "bottomBarSearchGap",
+    ) { it.gap }
+    val dockHeight = geometry.animateDp(
+        transitionSpec = { bottomBarDockWidthMotionSpec() }, label = "bottomBarDockHeight",
+    ) { it.dockHeight }
+    val searchHeight = geometry.animateDp(
+        transitionSpec = { bottomBarDockWidthMotionSpec() }, label = "bottomBarSearchHeight",
+    ) { it.searchHeight }
     val shellHeight = remember(dockHeight, searchHeight) {
         derivedStateOf { maxOf(dockHeight.value, searchHeight.value) }
     }

@@ -204,7 +204,7 @@ fun CategoryScreen(
     val cardLayout = remember(homeFeedCardStyle) {
         resolveHomeFeedCardLayout(homeFeedCardStyle)
     }
-    val showOnlineCount by SettingsManager.getShowOnlineCount(context).collectAsStateWithLifecycle(initialValue = false)
+    val showOnlineCount by SettingsManager.getShowCardOnlineCount(context).collectAsStateWithLifecycle(initialValue = false)
     val displayMode = homeSettings.displayMode
 
     // 📐 [Tablet Adaptation] Calculate adaptive columns
