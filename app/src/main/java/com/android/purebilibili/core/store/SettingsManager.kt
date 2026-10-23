@@ -7491,8 +7491,6 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
     private val FULLSCREEN_SWIPE_SEEK_OPTIONS = listOf(10, 15, 20, 30)
     private val SWIPE_SEEK_RELATIVE_PERCENT_OPTIONS = listOf(25, 50, 90, 100)
     const val DEFAULT_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT = 3
-    private const val COMMENT_PREVIEW_CACHE_PREFS = "comment_preview_cache"
-    private const val CACHE_KEY_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT = "comment_collapsed_reply_preview_limit"
 
     fun normalizeCommentCollapsedReplyPreviewLimit(value: Int): Int = value.coerceIn(1, 10)
 
@@ -7944,20 +7942,6 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
         context.settingsDataStore.edit { preferences ->
             preferences[KEY_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT] = normalized
         }
-        context.getSharedPreferences(COMMENT_PREVIEW_CACHE_PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(CACHE_KEY_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT, normalized)
-            .apply()
-    }
-
-    fun getCommentCollapsedReplyPreviewLimitSync(context: Context): Int {
-        return normalizeCommentCollapsedReplyPreviewLimit(
-            context.getSharedPreferences(COMMENT_PREVIEW_CACHE_PREFS, Context.MODE_PRIVATE)
-                .getInt(
-                    CACHE_KEY_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT,
-                    DEFAULT_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT
-                )
-        )
     }
 
     fun getPlayerDiagnosticLoggingEnabled(context: Context): Flow<Boolean> = context.settingsDataStore.data

@@ -8,8 +8,6 @@ import com.android.purebilibili.core.ui.components.AppHorizontalDivider
 
 import com.android.purebilibili.core.ui.AppSpacingTokens
 import com.android.purebilibili.core.ui.LocalAppThemeConfig
-import com.android.purebilibili.core.ui.AppAlertDialog
-import com.android.purebilibili.core.ui.AppDialogAction
 
 import com.android.purebilibili.core.ui.AppShapes
 import com.android.purebilibili.core.ui.ContainerLevel
@@ -38,10 +36,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import com.android.purebilibili.core.ui.components.AppIconButton
-import com.android.purebilibili.core.ui.components.resolveUpNameColor
-import com.android.purebilibili.core.ui.components.AppTextButton
-import com.android.purebilibili.core.ui.components.AppDropdownMenu
-import com.android.purebilibili.core.ui.components.AppDropdownMenuItem
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -55,38 +49,20 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.android.purebilibili.data.model.response.DynamicItem
 import com.android.purebilibili.data.model.response.ReplyItem
 import com.android.purebilibili.feature.dynamic.DynamicViewModel
-import com.android.purebilibili.feature.dynamic.DynamicStatusPalette
-import com.android.purebilibili.feature.dynamic.canOpenDynamicSubReplies
 import com.android.purebilibili.feature.dynamic.isDynamicCommentLiked
 import com.android.purebilibili.feature.dynamic.resolveDynamicCommentCountLabel
 import com.android.purebilibili.feature.dynamic.resolveDynamicCommentEmptyLabel
-import com.android.purebilibili.feature.dynamic.resolveDynamicCommentLocationLabel
 import com.android.purebilibili.feature.dynamic.resolveDynamicCommentSheetTotalCount
 import com.android.purebilibili.feature.dynamic.resolveDynamicCommentSheetHostContent
 import com.android.purebilibili.feature.dynamic.resolveDynamicCommentSkeletonSlotCount
 import com.android.purebilibili.feature.dynamic.DYNAMIC_COMMENT_SKELETON_MIN_SLOTS
-import com.android.purebilibili.feature.dynamic.resolveDynamicSubReplyCount
-import com.android.purebilibili.feature.dynamic.shouldOpenDynamicCommentThreadOnTap
 import com.android.purebilibili.feature.dynamic.DynamicCommentSheetHostContent
-import com.android.purebilibili.feature.video.ui.components.CommentPictures
-import com.android.purebilibili.feature.video.ui.components.RichCommentText
 import com.android.purebilibili.feature.video.ui.components.rememberCommentAvatarPushEnabled
-import com.android.purebilibili.feature.video.ui.components.ReplyMemberAvatar
 import com.android.purebilibili.feature.video.ui.components.ReplyItemView
-import com.android.purebilibili.feature.video.ui.components.VideoCommentTypographyTokens
-import com.android.purebilibili.feature.video.ui.components.FanGroupDecorationBadge
-import com.android.purebilibili.feature.video.ui.components.resolveFanGroupDecorationCardBgs
-import com.android.purebilibili.feature.video.ui.components.resolveFanGroupVisualFromMemberAndSailing
-import com.android.purebilibili.feature.video.ui.components.resolveInlineSubReplyToggleLabel
-import com.android.purebilibili.feature.video.ui.components.resolveReplyItemLayoutPolicy
-import com.android.purebilibili.feature.video.ui.components.resolveReplyPreviewTextContent
-import com.android.purebilibili.feature.video.ui.components.resolveVisibleSubReplies
-import com.android.purebilibili.feature.video.ui.components.shouldShowInlineSubReplyToggle
 import com.android.purebilibili.feature.video.ui.components.SubReplyDetailContent
 import com.android.purebilibili.feature.video.ui.components.resolveVideoCommentPredictiveBackProgress
 import com.android.purebilibili.feature.video.ui.components.resolveVideoCommentPredictiveBackTarget
@@ -104,14 +80,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import com.android.purebilibili.core.ui.AdaptiveLoadingIndicator
 import com.android.purebilibili.core.ui.rememberAppClearIcon
 import com.android.purebilibili.core.ui.rememberAppCommentIcon
-import com.android.purebilibili.core.ui.rememberAppLikeFilledIcon
-import com.android.purebilibili.core.ui.rememberAppLikeIcon
-import com.android.purebilibili.core.ui.rememberAppMoreIcon
 import com.android.purebilibili.core.store.TokenManager
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Reply
-import com.android.purebilibili.core.util.FormatUtils
-import com.android.purebilibili.core.ui.LocalDetailedCommentTimeEnabled
 import com.android.purebilibili.core.ui.AppModalBottomSheet
 import top.yukonga.miuix.kmp.blur.Backdrop as MiuixBackdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
@@ -558,6 +527,9 @@ fun DynamicCommentSheet(
                                         key = { it.rpid },
                                         contentType = { DYNAMIC_COMMENT_ITEM_CONTENT_TYPE },
                                     ) { reply ->
+                                        val actionCapabilities = resolveDynamicCommentActionCapabilities(
+                                            reply, dynamicAuthorMid, currentUserMid,
+                                        )
                                         ReplyItemView(
                                             modifier = dynamicCommentItemModifier(),
                                             avatarListState = listState.takeIf { avatarPushEnabled },
@@ -570,7 +542,7 @@ fun DynamicCommentSheet(
                                             isLiked = isDynamicCommentLiked(reply),
                                             onHateClick = { onHate(reply) },
                                             isHated = reply.action == 2,
-                                            onDeleteClick = { onDelete(reply) },
+                                            onDeleteClick = if (actionCapabilities.canDelete) ({ onDelete(reply) }) else null,
                                             onReportClick = { reason -> onReport(reply, reason) },
                                             canToggleTop = dynamicAuthorMid > 0L,
                                             onToggleTopClick = { onToggleTop(reply) },
@@ -896,6 +868,9 @@ fun LazyListScope.dynamicInlineCommentItems(
             key = { it.rpid },
             contentType = { DYNAMIC_COMMENT_ITEM_CONTENT_TYPE },
         ) { reply ->
+            val actionCapabilities = resolveDynamicCommentActionCapabilities(
+                reply, dynamicAuthorMid, currentUserMid,
+            )
             ReplyItemView(
                 modifier = dynamicCommentItemModifier(),
                 avatarListState = avatarListState,
@@ -908,7 +883,7 @@ fun LazyListScope.dynamicInlineCommentItems(
                 isLiked = isDynamicCommentLiked(reply),
                 onHateClick = { onHate(reply) },
                 isHated = reply.action == 2,
-                onDeleteClick = { onDelete(reply) },
+                onDeleteClick = if (actionCapabilities.canDelete) ({ onDelete(reply) }) else null,
                 onReportClick = { reason -> onReport(reply, reason) },
                 canToggleTop = dynamicAuthorMid > 0L,
                 onToggleTopClick = { onToggleTop(reply) },
@@ -931,415 +906,3 @@ fun LazyListScope.dynamicInlineCommentItems(
     }
 }
 
-/**
- *  单条评论项
- */
-@Composable
-private fun CommentItem(
-    reply: ReplyItem,
-    onViewReplies: (ReplyItem) -> Unit,
-    onReply: (ReplyItem) -> Unit = {},
-    onLike: (ReplyItem) -> Unit = {},
-    dynamicAuthorMid: Long = 0L,
-    currentUserMid: Long? = null,
-    onDelete: (ReplyItem) -> Unit = {},
-    onToggleTop: (ReplyItem) -> Unit = {},
-    onReport: (ReplyItem, Int) -> Unit = { _, _ -> },
-    onUserClick: (Long) -> Unit,
-    onImagePreview: (List<String>, Int, ImagePreviewSourceAnchor?, ImagePreviewTextContent?) -> Unit,
-    subReplyState: SubReplyUiState = SubReplyUiState(),
-    modifier: Modifier = Modifier,
-) {
-    val detailedCommentTimeEnabled = LocalDetailedCommentTimeEnabled.current
-    val queryAicu = com.android.purebilibili.feature.aicu.LocalAicuNavigation.current
-    val member = reply.member
-    val actionCapabilities = remember(reply, dynamicAuthorMid, currentUserMid) {
-        resolveDynamicCommentActionCapabilities(reply, dynamicAuthorMid, currentUserMid)
-    }
-    var showActions by remember(reply.rpid) { mutableStateOf(false) }
-    var showReportReasons by remember(reply.rpid) { mutableStateOf(false) }
-    var confirmDelete by remember(reply.rpid) { mutableStateOf(false) }
-    if (confirmDelete) {
-        AppAlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { AppText("删除评论") },
-            text = { AppText("删除后无法恢复，确定删除这条评论吗？") },
-            confirmButton = {
-                AppDialogAction(
-                    onClick = {
-                        confirmDelete = false
-                        onDelete(reply)
-                    },
-                ) { AppText("删除", color = AppContentColors.error()) }
-            },
-            dismissButton = {
-                AppDialogAction(onClick = { confirmDelete = false }) { AppText("取消") }
-            },
-        )
-    }
-    var isSubPreviewExpanded by remember(reply.rpid) { mutableStateOf(false) }
-    val loadedSubReplies = if (subReplyState.visible && subReplyState.rootReply?.rpid == reply.rpid) {
-        subReplyState.items
-    } else {
-        reply.replies.orEmpty()
-    }
-    val visibleSubReplies = remember(loadedSubReplies, isSubPreviewExpanded) {
-        resolveVisibleSubReplies(
-            replies = loadedSubReplies,
-            expanded = isSubPreviewExpanded
-        )
-    }
-    val showInlineToggle = remember(loadedSubReplies) {
-        shouldShowInlineSubReplyToggle(loadedSubReplies.size)
-    }
-    val fanGroupVisual = remember(member) {
-        resolveFanGroupVisualFromMemberAndSailing(
-            member = member,
-            cardBgs = resolveFanGroupDecorationCardBgs(member)
-        )
-    }
-    // 收藏集装饰必须 TopEnd 叠层；内联在名字行会在右侧留下空洞。
-    val decorationEndReserve = if (fanGroupVisual != null) {
-        resolveReplyItemLayoutPolicy().decorationMinWidthDp.dp
-    } else {
-        AppSpacingTokens.None
-    }
-
-    val locationLabel = remember(reply.replyControl?.location) {
-        resolveDynamicCommentLocationLabel(reply.replyControl?.location)
-    }
-    val liked = isDynamicCommentLiked(reply)
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(
-                if (shouldOpenDynamicCommentThreadOnTap(reply)) {
-                    Modifier.clickable { onViewReplies(reply) }
-                } else {
-                    Modifier
-                }
-            )
-    ) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        val memberMid = remember(member.mid, reply.mid) {
-            member.mid.toLongOrNull()?.takeIf { it > 0L }
-                ?: reply.mid.takeIf { it > 0L }
-        }
-        ReplyMemberAvatar(
-            member = member,
-            placeholderColor = MaterialTheme.colorScheme.surfaceVariant,
-            lightweightMode = false,
-            modifier = Modifier.size(AppSpacingTokens.DoubleExtraLarge + AppSpacingTokens.ExtraSmall),
-            onClick = memberMid?.let { mid -> { onUserClick(mid) } }
-        )
-
-        Spacer(modifier = Modifier.width(AppSpacingTokens.Medium))
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = decorationEndReserve)
-        ) {
-            // 用户名 + 时间（装饰独立右置顶，不占用此行）
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AppText(
-                    text = member.uname,
-                    fontSize = VideoCommentTypographyTokens.author,
-                    fontWeight = FontWeight.Medium,
-                    color = resolveUpNameColor(
-                        vipStatus = member.vip?.vipStatus ?: 0,
-                        vipType = member.vip?.vipType ?: 0,
-                        onSurface = AppContentColors.primaryText(),
-                        secondary = com.android.purebilibili.core.ui.components.userVipPink(),
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .then(
-                            if (memberMid != null) {
-                                Modifier.clickable { onUserClick(memberMid) }
-                            } else {
-                                Modifier
-                            }
-                        )
-                )
-                Spacer(modifier = Modifier.width(AppSpacingTokens.Small))
-                AppText(
-                    text = FormatUtils.formatCommentTime(
-                        timestampSeconds = reply.ctime,
-                        detailedTimeEnabled = detailedCommentTimeEnabled
-                    ),
-                    fontSize = VideoCommentTypographyTokens.metadata,
-                    color = AppContentColors.secondaryText().copy(0.5f)
-                )
-                if (locationLabel != null) {
-                    AppText(
-                        text = " • $locationLabel",
-                        fontSize = VideoCommentTypographyTokens.metadata,
-                        color = AppContentColors.secondaryText().copy(0.5f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (
-                    actionCapabilities.canDelete ||
-                    actionCapabilities.canReport ||
-                    actionCapabilities.canToggleTop
-                ) {
-                    Box {
-                        AppIconButton(onClick = { showActions = true }) {
-                            AppIcon(
-                                rememberAppMoreIcon(),
-                                contentDescription = "评论操作",
-                                modifier = Modifier.size(AppSpacingTokens.Large),
-                            )
-                        }
-                        AppDropdownMenu(
-                            expanded = showActions,
-                            onDismissRequest = { showActions = false },
-                        ) {
-                            val authorUid = member.mid.toLongOrNull()?.takeIf { it > 0 } ?: reply.mid
-                            if (queryAicu != null && authorUid > 0) {
-                                AppDropdownMenuItem(
-                                    text = { AppText("查询作者历史") },
-                                    onClick = { showActions = false; queryAicu(authorUid) },
-                                )
-                            }
-                            if (actionCapabilities.canToggleTop) {
-                                AppDropdownMenuItem(
-                                    text = {
-                                        AppText(if (actionCapabilities.isCurrentlyTop) "取消置顶" else "置顶评论")
-                                    },
-                                    onClick = {
-                                        showActions = false
-                                        onToggleTop(reply)
-                                    },
-                                )
-                            }
-                            if (actionCapabilities.canReport) {
-                                AppDropdownMenuItem(
-                                    text = { AppText("举报评论") },
-                                    onClick = {
-                                        showActions = false
-                                        showReportReasons = true
-                                    },
-                                )
-                            }
-                            if (actionCapabilities.canDelete) {
-                                AppDropdownMenuItem(
-                                    text = { AppText("删除评论", color = AppContentColors.error()) },
-                                    onClick = {
-                                        showActions = false
-                                        confirmDelete = true
-                                    },
-                                )
-                            }
-                        }
-                        AppDropdownMenu(
-                            expanded = showReportReasons,
-                            onDismissRequest = { showReportReasons = false },
-                        ) {
-                            resolveDynamicCommentReportReasons().forEach { reason ->
-                                AppDropdownMenuItem(
-                                    text = { AppText(reason.label) },
-                                    onClick = {
-                                        showReportReasons = false
-                                        onReport(reply, reason.type)
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(AppSpacingTokens.ExtraSmall))
-
-            // 评论内容 - 使用 RichCommentText 渲染表情
-            val emoteMap = remember(reply.content.emote) {
-                reply.content.emote?.mapValues { it.value.url } ?: emptyMap()
-            }
-            RichCommentText(
-                text = reply.content.message,
-                fontSize = VideoCommentTypographyTokens.body,
-                color = AppContentColors.primaryText(),
-                emoteMap = emoteMap,
-                content = reply.content,
-                onUserClick = onUserClick,
-            )
-
-            // 评论图片
-            if (!reply.content.pictures.isNullOrEmpty()) {
-                Spacer(modifier = Modifier.height(AppSpacingTokens.Small))
-                CommentPictures(
-                    pictures = reply.content.pictures.orEmpty(),
-                    onImageClick = { images, index, rect ->
-                        onImagePreview(
-                            images,
-                            index,
-                            rect,
-                            resolveReplyPreviewTextContent(
-                                item = reply,
-                                detailedTimeEnabled = detailedCommentTimeEnabled
-                            )
-                        )
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(AppSpacingTokens.Small))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onReply(reply) }
-                ) {
-                    AppIcon(
-                        Icons.AutoMirrored.Outlined.Reply,
-                        contentDescription = "回复",
-                        modifier = Modifier.size(AppSpacingTokens.Large),
-                        tint = AppContentColors.secondaryText().copy(0.7f)
-                    )
-                    Spacer(modifier = Modifier.width(AppSpacingTokens.ExtraSmall))
-                    AppText(
-                        text = "回复",
-                        fontSize = VideoCommentTypographyTokens.action,
-                        color = AppContentColors.secondaryText().copy(0.7f)
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onLike(reply) }
-                ) {
-                    AppIcon(
-                        if (liked) rememberAppLikeFilledIcon() else rememberAppLikeIcon(),
-                        contentDescription = if (liked) "已赞" else "点赞",
-                        modifier = Modifier.size(AppSpacingTokens.Medium + AppSpacingTokens.Micro),
-                        tint = if (liked) {
-                            DynamicStatusPalette.liked()
-                        } else {
-                            AppContentColors.secondaryText().copy(0.5f)
-                        }
-                    )
-                    Spacer(modifier = Modifier.width(AppSpacingTokens.ExtraSmall))
-                    AppText(
-                        text = "${reply.like}",
-                        fontSize = VideoCommentTypographyTokens.actionCount,
-                        color = if (liked) {
-                            DynamicStatusPalette.liked()
-                        } else {
-                            AppContentColors.secondaryText().copy(0.5f)
-                        }
-                    )
-                }
-            }
-
-            if (canOpenDynamicSubReplies(reply) || loadedSubReplies.isNotEmpty()) {
-                if (visibleSubReplies.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(AppSpacingTokens.Small + AppSpacingTokens.Micro))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(AppShapes.container(ContainerLevel.Dialog))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f))
-                            .padding(horizontal = AppSpacingTokens.Small + AppSpacingTokens.Micro, vertical = AppSpacingTokens.Small),
-                        verticalArrangement = Arrangement.spacedBy(AppSpacingTokens.Small)
-                    ) {
-                        visibleSubReplies.forEach { subReply ->
-                            val subEmoteMap = remember(subReply.content.emote) {
-                                subReply.content.emote?.mapValues { it.value.url } ?: emptyMap()
-                            }
-                            Column(verticalArrangement = Arrangement.spacedBy(AppSpacingTokens.ExtraSmall + AppSpacingTokens.Micro)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(AppSpacingTokens.ExtraSmall + AppSpacingTokens.Micro)
-                                ) {
-                                    AppText(
-                                        text = "${subReply.member.uname}:",
-                                        fontSize = VideoCommentTypographyTokens.subReply,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = resolveUpNameColor(
-                                            vipStatus = subReply.member.vip?.vipStatus ?: 0,
-                                            vipType = subReply.member.vip?.vipType ?: 0,
-                                            onSurface = AppContentColors.primaryText(),
-                                            secondary = com.android.purebilibili.core.ui.components.userVipPink(),
-                                        ),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Box(modifier = Modifier.weight(1f)) {
-                                        RichCommentText(
-                                            text = subReply.content.message,
-                                            fontSize = VideoCommentTypographyTokens.subReply,
-                                            color = AppContentColors.secondaryText(),
-                                            emoteMap = subEmoteMap,
-                                            content = subReply.content,
-                                            maxLines = 2,
-                                            onUserClick = onUserClick,
-                                        )
-                                    }
-                                }
-                                if (!subReply.content.pictures.isNullOrEmpty()) {
-                                    CommentPictures(
-                                        pictures = subReply.content.pictures.orEmpty(),
-                                        onImageClick = { images, index, rect ->
-                                            onImagePreview(
-                                                images,
-                                                index,
-                                                rect,
-                                                resolveReplyPreviewTextContent(
-                                                    item = subReply,
-                                                    detailedTimeEnabled = detailedCommentTimeEnabled
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        if (showInlineToggle) {
-                            AppText(
-                                text = resolveInlineSubReplyToggleLabel(expanded = isSubPreviewExpanded),
-                                fontSize = VideoCommentTypographyTokens.subReply,
-                                color = AppContentColors.accent(),
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.clickable { isSubPreviewExpanded = !isSubPreviewExpanded }
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(AppSpacingTokens.Small))
-                AppTextButton(
-                    onClick = { onViewReplies(reply) },
-                    contentPadding = PaddingValues(horizontal = AppSpacingTokens.None, vertical = AppSpacingTokens.None)
-                ) {
-                    AppText(
-                        text = if (subReplyState.isLoading) {
-                            "加载回复中…"
-                        } else {
-                            "查看回复(${maxOf(resolveDynamicSubReplyCount(reply), subReplyState.totalCount)})"
-                        },
-                        fontSize = VideoCommentTypographyTokens.subReply,
-                    )
-                }
-            }
-        }
-    }
-
-        if (fanGroupVisual != null) {
-            FanGroupDecorationBadge(
-                visual = fanGroupVisual,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = AppSpacingTokens.None)
-            )
-        }
-    }
-}

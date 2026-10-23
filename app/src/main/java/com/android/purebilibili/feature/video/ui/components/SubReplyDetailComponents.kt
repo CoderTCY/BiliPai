@@ -714,9 +714,9 @@ internal fun SubReplyDetailContent(
                                 onTimestampClick = onTimestampClick,
                                 onImagePreview = onImagePreview,
                                 onReplyClick = { onReplyClick?.invoke(rootReply) },
-                                onDeleteClick = if (currentMid > 0 && rootReply.mid == currentMid) {
-                                    { onDeleteComment?.invoke(rootReply.rpid) }
-                                } else null,
+                                onDeleteClick = onDeleteComment?.takeIf {
+                                    currentMid > 0 && rootReply.mid == currentMid
+                                }?.let { delete -> { delete(rootReply.rpid) } },
                                 onCheckFraudClick = if (onCheckCommentFraud != null && currentMid > 0 && rootReply.mid == currentMid) {
                                     { onCheckCommentFraud.invoke(rootReply) }
                                 } else null,
@@ -839,11 +839,9 @@ internal fun SubReplyDetailContent(
                                 onTimestampClick = onTimestampClick,
                                 onImagePreview = onImagePreview,
                                 onReplyClick = { onReplyClick?.invoke(item) },
-                                onDeleteClick = if (currentMid > 0 && item.mid == currentMid) {
-                                    { onDissolveStart?.invoke(item.rpid) }
-                                } else {
-                                    null
-                                },
+                                onDeleteClick = (onDissolveStart ?: onDeleteComment)?.takeIf {
+                                    currentMid > 0 && item.mid == currentMid
+                                }?.let { delete -> { delete(item.rpid) } },
                                 onCheckFraudClick = if (onCheckCommentFraud != null && currentMid > 0 && item.mid == currentMid) {
                                     { onCheckCommentFraud.invoke(item) }
                                 } else null,

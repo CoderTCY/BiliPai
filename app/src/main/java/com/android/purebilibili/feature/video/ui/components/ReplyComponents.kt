@@ -563,12 +563,11 @@ internal enum class ReplyActionSheetAction {
     BLOCK_USER,
     REPORT,
     CHECK_FRAUD,
-    TOGGLE_TOP,
-    DELETE
+    TOGGLE_TOP
 }
 
 internal fun buildReplyActionSheetActions(
-    canDelete: Boolean,
+    canCheckFraud: Boolean,
     canReport: Boolean,
     canShare: Boolean,
     canBlockUser: Boolean,
@@ -595,14 +594,11 @@ internal fun buildReplyActionSheetActions(
         if (canReport) {
             add(ReplyActionSheetAction.REPORT)
         }
-        if (canDelete) {
+        if (canCheckFraud) {
             add(ReplyActionSheetAction.CHECK_FRAUD)
         }
         if (!topActionLabel.isNullOrBlank()) {
             add(ReplyActionSheetAction.TOGGLE_TOP)
-        }
-        if (canDelete) {
-            add(ReplyActionSheetAction.DELETE)
         }
     }
 }
@@ -624,14 +620,12 @@ private fun resolveReplyActionSheetLabel(
         ReplyActionSheetAction.REPORT -> "举报"
         ReplyActionSheetAction.CHECK_FRAUD -> "检测评论状态"
         ReplyActionSheetAction.TOGGLE_TOP -> topActionLabel.orEmpty()
-        ReplyActionSheetAction.DELETE -> "删除"
     }
 }
 
 private fun isReplyActionDestructive(action: ReplyActionSheetAction): Boolean {
     return action == ReplyActionSheetAction.REPORT ||
-        action == ReplyActionSheetAction.BLOCK_USER ||
-        action == ReplyActionSheetAction.DELETE
+        action == ReplyActionSheetAction.BLOCK_USER
 }
 
 internal fun resolveReplyCommentImageSaveToast(success: Boolean): String {
@@ -1294,8 +1288,11 @@ fun ReplyItemView(
         hideSubPreview = hideSubPreview,
         lightweightMode = lightweightMode
     )
-    val collapsedSubReplyPreviewLimit = remember(context) {
-        SettingsManager.getCommentCollapsedReplyPreviewLimitSync(context)
+    val preview = rememberReplyPreviewState(item = item, enabled = showSubPreview)
+    val collapsedSubReplyPreviewLimit = preview.collapsedLimit
+    val previewReplies = preview.replies
+    val previewRoot = remember(item, previewReplies) {
+        if (item.replies.orEmpty() == previewReplies) item else item.copy(replies = previewReplies)
     }
     val localEmoteMap = remember(item.content.emote, emoteMap) {
         val inlineEmotes = item.content.emote.orEmpty()
@@ -1392,31 +1389,31 @@ fun ReplyItemView(
             compact = true
         )
     }
-    var isSubPreviewExpanded by remember(item.rpid, item.replies) {
+    var isSubPreviewExpanded by remember(item.rpid, previewReplies) {
         mutableStateOf(
             resolveInitialSubReplyPreviewExpanded(
-                previewReplyCount = item.replies.orEmpty().size
+                previewReplyCount = previewReplies.size
             )
         )
     }
-    val visibleSubReplies = remember(item.replies, isSubPreviewExpanded, collapsedSubReplyPreviewLimit) {
+    val visibleSubReplies = remember(previewReplies, isSubPreviewExpanded, collapsedSubReplyPreviewLimit) {
         resolveVisibleSubReplies(
-            replies = item.replies,
+            replies = previewReplies,
             expanded = isSubPreviewExpanded,
             collapsedLimit = collapsedSubReplyPreviewLimit
         )
     }
-    val showInlineSubReplyToggle = remember(item.replies, collapsedSubReplyPreviewLimit) {
+    val showInlineSubReplyToggle = remember(previewReplies, collapsedSubReplyPreviewLimit) {
         shouldShowInlineSubReplyToggle(
-            previewReplyCount = item.replies.orEmpty().size,
+            previewReplyCount = previewReplies.size,
             collapsedLimit = collapsedSubReplyPreviewLimit
         )
     }
-    val threadReplyCount = remember(item.count, item.rcount, item.replies) {
-        resolveReplyThreadCount(item)
+    val threadReplyCount = remember(item.count, item.rcount, item.replies, previewReplies) {
+        maxOf(resolveReplyThreadCount(item), previewReplies.size)
     }
-    val hasUpSubReply = remember(item.replyControl?.upReply, item.replies, upMid) {
-        item.replyControl?.upReply == true || (upMid > 0 && item.replies.orEmpty().any { it.mid == upMid })
+    val hasUpSubReply = remember(item.replyControl?.upReply, previewReplies, upMid) {
+        item.replyControl?.upReply == true || (upMid > 0 && previewReplies.any { it.mid == upMid })
     }
     val subReplySummaryLabel = remember(threadReplyCount, hasUpSubReply) {
         resolveSubReplyPreviewSummaryLabel(
@@ -1424,8 +1421,8 @@ fun ReplyItemView(
             hasUpReply = hasUpSubReply
         )
     }
-    val openThreadFromRootClick = remember(hideSubPreview, item.count, item.rcount, item.replies) {
-        !hideSubPreview && shouldOpenReplyThreadFromRootClick(item)
+    val openThreadFromRootClick = remember(hideSubPreview, previewRoot) {
+        !hideSubPreview && shouldOpenReplyThreadFromRootClick(previewRoot)
     }
     val copyToClipboard = rememberClipboardCopyHandler()
     val blockedUpRepository = remember { BlockedUpRepository.getInstance(context) }
@@ -1501,7 +1498,7 @@ fun ReplyItemView(
     if (showActionSheet) {
         ReplyActionSheet(
             queryAuthorUid = replyMemberMid,
-            canDelete = onDeleteClick != null,
+            canCheckFraud = onCheckFraudClick != null,
             canReport = onReportClick != null,
             canShare = shouldSupportReplyShare(item),
             canBlockUser = replyMemberMid > 0L,
@@ -1524,7 +1521,7 @@ fun ReplyItemView(
                 shareReplyComment()
             },
             onReply = {
-                onReplyClick?.invoke() ?: onSubClick(item, 0L)
+                onReplyClick?.invoke() ?: onSubClick(previewRoot, 0L)
             },
             onBlockUser = {
                 confirmBlockUser = true
@@ -1537,9 +1534,6 @@ fun ReplyItemView(
             },
             onCheckFraud = {
                 onCheckFraudClick?.invoke()
-            },
-            onDelete = {
-                onDeleteClick?.invoke()
             }
         )
     }
@@ -1599,7 +1593,7 @@ fun ReplyItemView(
             .combinedClickable(
                 onClick = {
                     if (openThreadFromRootClick) {
-                        onSubClick(item, 0L)
+                        onSubClick(previewRoot, 0L)
                     } else {
                         onClick()
                     }
@@ -1774,7 +1768,7 @@ fun ReplyItemView(
                         noteCvidStr = item.noteCvidStr,
                         prefix = contentPrefix,
                         onPlainTextClick = if (openThreadFromRootClick) {
-                            { onSubClick(item, 0L) }
+                            { onSubClick(previewRoot, 0L) }
                         } else {
                             null
                         }
@@ -1810,7 +1804,7 @@ fun ReplyItemView(
                     ReplyTextAction(
                         label = "回复",
                         appearance = appearance,
-                        onClick = { onReplyClick?.invoke() ?: onSubClick(item, 0L) }
+                        onClick = { onReplyClick?.invoke() ?: onSubClick(previewRoot, 0L) }
                     )
 
                     // [新增] 翻译按钮 (胶囊样式)
@@ -1888,6 +1882,20 @@ fun ReplyItemView(
 
                     Spacer(modifier = Modifier.weight(1f))
 
+                    if (onDeleteClick != null) {
+                        Box(modifier = Modifier.height(32.dp)) {
+                            AppIconButton(onClick = onDeleteClick) {
+                                AppIcon(
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = "删除",
+                                    tint = appearance.actionTint,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
                     val likeFilledIcon = rememberAppLikeFilledIcon()
 
                     // Like
@@ -1928,24 +1936,10 @@ fun ReplyItemView(
                         }
                     }
 
-                    // [新增] 删除按钮 (仅显示给本人)
-                    if (onDeleteClick != null) {
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Box(modifier = Modifier.height(32.dp)) {
-                            AppIconButton(onClick = onDeleteClick) {
-                                AppIcon(
-                                    imageVector = Icons.Outlined.Delete,
-                                    contentDescription = "删除",
-                                    tint = appearance.actionTint,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                        }
-                    }
                 }
 
                 // Sub-comments (Threaded view)
-                if (showSubPreview && (!item.replies.isNullOrEmpty() || item.rcount > 0)) {
+                if (showSubPreview && (previewReplies.isNotEmpty() || threadReplyCount > 0)) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Column(
                         modifier = Modifier
@@ -1956,7 +1950,7 @@ fun ReplyItemView(
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        item.replies.orEmpty().forEachIndexed { index, subReply ->
+                        previewReplies.forEachIndexed { index, subReply ->
                             key(subReply.rpid) {
                                 CommentContentReveal(visible = index < visibleSubReplies.size) {
                                     val subEmoteMap = remember(subReply.content.emote, emoteMap) {
@@ -2040,7 +2034,7 @@ fun ReplyItemView(
                                             .combinedClickable(
                                                 onClick = {
                                                     onSubClick(
-                                                        item,
+                                                        previewRoot,
                                                         resolveSubReplyOpenTargetId(item.rpid, subReply.rpid)
                                                     )
                                                 },
@@ -2069,7 +2063,7 @@ fun ReplyItemView(
                                             prefix = prefix,
                                             onPlainTextClick = {
                                                 onSubClick(
-                                                    item,
+                                                    previewRoot,
                                                     resolveSubReplyOpenTargetId(item.rpid, subReply.rpid)
                                                 )
                                             }
@@ -2096,7 +2090,7 @@ fun ReplyItemView(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("$COMMENT_VIEW_ALL_REPLIES_TAG_PREFIX${item.rpid}")
-                                    .clickable { onSubClick(item, 0L) },
+                                    .clickable { onSubClick(previewRoot, 0L) },
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 AppText(
@@ -2941,7 +2935,7 @@ internal fun ReplyTextAction(
 @Composable
 internal fun ReplyActionSheet(
     queryAuthorUid: Long = 0L,
-    canDelete: Boolean,
+    canCheckFraud: Boolean,
     canReport: Boolean,
     canShare: Boolean = true,
     canBlockUser: Boolean = false,
@@ -2957,8 +2951,7 @@ internal fun ReplyActionSheet(
     onBlockUser: () -> Unit = {},
     onReport: () -> Unit,
     onCheckFraud: () -> Unit = {},
-    onToggleTop: () -> Unit,
-    onDelete: () -> Unit
+    onToggleTop: () -> Unit
 ) {
     val queryAicu = com.android.purebilibili.feature.aicu.LocalAicuNavigation.current
     val canQueryAuthorHistory = queryAicu != null && queryAuthorUid > 0
@@ -2971,7 +2964,7 @@ internal fun ReplyActionSheet(
         .collectAsStateWithLifecycle(initialValue = false)
     val actions = remember(
         canQueryAuthorHistory,
-        canDelete,
+        canCheckFraud,
         canReport,
         canShare,
         canBlockUser,
@@ -2979,7 +2972,7 @@ internal fun ReplyActionSheet(
         topActionLabel,
     ) {
         buildReplyActionSheetActions(
-            canDelete = canDelete,
+            canCheckFraud = canCheckFraud,
             canReport = canReport,
             canShare = canShare,
             canBlockUser = canBlockUser,
@@ -3032,7 +3025,6 @@ internal fun ReplyActionSheet(
                             ReplyActionSheetAction.REPORT -> onReport()
                             ReplyActionSheetAction.CHECK_FRAUD -> onCheckFraud()
                             ReplyActionSheetAction.TOGGLE_TOP -> onToggleTop()
-                            ReplyActionSheetAction.DELETE -> onDelete()
                         }
                         onDismiss()
                     }

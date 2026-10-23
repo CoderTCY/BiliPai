@@ -178,40 +178,6 @@ class DynamicCommentStructureTest {
     }
 
     @Test
-    fun `dynamic comment mentions forward user navigation through every comment surface`() {
-        val sheetSource = File(
-            "src/main/java/com/android/purebilibili/feature/dynamic/components/DynamicCommentSheet.kt"
-        ).readText()
-        val subReplySource = File(
-            "src/main/java/com/android/purebilibili/feature/dynamic/components/DynamicSubReplyPreviewHost.kt"
-        ).readText()
-        val screenSource = File(
-            "src/main/java/com/android/purebilibili/feature/dynamic/DynamicScreen.kt"
-        ).readText()
-        val spaceSource = File(
-            "src/main/java/com/android/purebilibili/feature/space/SpaceScreen.kt"
-        ).readText()
-        val detailSource = File(
-            "src/main/java/com/android/purebilibili/feature/dynamic/DynamicDetailScreen.kt"
-        ).readText()
-
-        assertTrue(sheetSource.contains("content = reply.content"))
-        assertTrue(sheetSource.contains("content = subReply.content"))
-        assertTrue(sheetSource.contains("SubReplyDetailContent("))
-        assertTrue(sheetSource.contains("onUserClick = onUserClick"))
-        assertTrue(sheetSource.contains("onAvatarClick = { mid -> mid.toLongOrNull()?.let(onUserClick) }"))
-        assertTrue(subReplySource.contains("onAvatarClick = { mid -> mid.toLongOrNull()?.let(onUserClick) }"))
-        assertTrue(subReplySource.contains("DynamicEmoteCatalog.ensureLoaded()"))
-        assertTrue(subReplySource.contains("emoteMap = emoteMap"))
-        assertTrue(!subReplySource.contains("emoteMap = emptyMap()"))
-        assertTrue(!screenSource.contains("DynamicCommentOverlayHost("))
-        assertTrue(spaceSource.contains("DynamicCommentOverlayHost("))
-        assertTrue(screenSource.contains("onUserClick = onUserClick"))
-        assertTrue(detailSource.contains("dynamicInlineCommentItems("))
-        assertTrue(detailSource.contains("onUserClick = onUserClick"))
-    }
-
-    @Test
     fun `feed and space comment buttons open dynamic detail`() {
         val screenSource = File(
             "src/main/java/com/android/purebilibili/feature/dynamic/DynamicScreen.kt"

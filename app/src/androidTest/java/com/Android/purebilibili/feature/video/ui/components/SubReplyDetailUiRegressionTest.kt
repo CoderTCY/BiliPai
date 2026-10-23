@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -16,6 +17,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performScrollToNode
@@ -27,6 +29,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.purebilibili.data.model.response.ReplyContent
 import com.android.purebilibili.data.model.response.ReplyItem
 import com.android.purebilibili.data.model.response.ReplyMember
+import com.android.purebilibili.feature.dynamic.components.dynamicInlineCommentItems
 import com.android.purebilibili.data.model.response.ReplyPicture
 import com.android.purebilibili.feature.video.ui.components.COMMENT_SUB_REPLY_PREVIEW_TAG_PREFIX
 import com.android.purebilibili.feature.video.ui.components.COMMENT_VIEW_ALL_REPLIES_TAG_PREFIX
@@ -38,6 +41,7 @@ import com.android.purebilibili.feature.video.viewmodel.SubReplySortMode
 import com.android.purebilibili.feature.video.viewmodel.SubReplyUiState
 import kotlinx.collections.immutable.toImmutableList
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -51,6 +55,101 @@ class SubReplyDetailUiRegressionTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+
+    @Test
+    fun dynamicCommentDelete_isOwnerOnlyBeforeVotesAndAbsentFromMoreMenu() {
+        val currentMid = mutableStateOf<Long?>(42L)
+        var deleteCount = 0
+        val reply = ReplyItem(
+            rpid = 801L,
+            mid = 42L,
+            member = ReplyMember(mid = "42", uname = "comment author"),
+            content = ReplyContent(message = "ownership regression comment"),
+        )
+        composeTestRule.setContent {
+            MaterialTheme {
+                LazyColumn {
+                    dynamicInlineCommentItems(
+                        comments = listOf(reply),
+                        isLoading = false,
+                        isLoadingMore = false,
+                        dynamicAuthorMid = 99L,
+                        currentUserMid = currentMid.value,
+                        onViewReplies = {},
+                        onDelete = { deleteCount++ },
+                        onUserClick = {},
+                        onImagePreview = { _, _, _, _ -> },
+                    )
+                }
+            }
+        }
+
+        val delete = composeTestRule.onNodeWithContentDescription("删除")
+        delete.assertIsDisplayed()
+        val deleteBounds = delete.fetchSemanticsNode().boundsInRoot
+        val likeBounds = composeTestRule.onNodeWithContentDescription("Like", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val hateBounds = composeTestRule.onNodeWithContentDescription("点踩评论", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue(deleteBounds.right <= likeBounds.left)
+        assertTrue(likeBounds.right <= hateBounds.left)
+        delete.performClick()
+        composeTestRule.runOnIdle { assertEquals(1, deleteCount) }
+
+        composeTestRule.onNodeWithContentDescription("评论操作").performClick()
+        composeTestRule.onNodeWithText("复制全部").assertIsDisplayed()
+        composeTestRule.onNodeWithText("删除").assertDoesNotExist()
+        composeTestRule.onNodeWithText("删除评论").assertDoesNotExist()
+        composeTestRule.onNodeWithText("复制用户名").performClick()
+
+        // A dynamic's owner is still not allowed to delete somebody else's comment.
+        composeTestRule.runOnIdle { currentMid.value = 99L }
+        composeTestRule.onNodeWithContentDescription("删除").assertDoesNotExist()
+        composeTestRule.runOnIdle { currentMid.value = 77L }
+        composeTestRule.onNodeWithContentDescription("删除").assertDoesNotExist()
+        composeTestRule.runOnIdle { currentMid.value = 0L }
+        composeTestRule.onNodeWithContentDescription("删除").assertDoesNotExist()
+        composeTestRule.runOnIdle { currentMid.value = null }
+        composeTestRule.onNodeWithContentDescription("删除").assertDoesNotExist()
+    }
+
+    @Test
+    fun threadDeletion_usesRealHandlerForRootAndChildWithoutDissolve() {
+        val currentMid = mutableStateOf(30L)
+        val deletionAvailable = mutableStateOf(true)
+        val deletedIds = mutableListOf<Long>()
+        val root = buildReplyWithPreview()
+        composeTestRule.setContent {
+            MaterialTheme {
+                SubReplySheet(
+                    state = SubReplyUiState(
+                        visible = true,
+                        rootReply = root.copy(replies = null),
+                        items = root.replies.orEmpty().toImmutableList(),
+                        isEnd = true,
+                    ),
+                    emoteMap = emptyMap(),
+                    currentMid = currentMid.value,
+                    onDeleteComment = if (deletionAvailable.value) ({ deletedIds += it }) else null,
+                    onDismiss = {},
+                    onSortModeChange = {},
+                    onRefresh = {},
+                    onLoadMore = {},
+                )
+            }
+        }
+        composeTestRule.onNodeWithContentDescription("删除").assertIsDisplayed().performClick()
+        composeTestRule.runOnIdle {
+            assertEquals(listOf(301L), deletedIds)
+            currentMid.value = 10L
+        }
+        composeTestRule.onNodeWithContentDescription("删除").assertIsDisplayed().performClick()
+        composeTestRule.runOnIdle {
+            assertEquals(listOf(301L, 100L), deletedIds)
+            deletionAvailable.value = false
+        }
+        composeTestRule.onNodeWithContentDescription("删除").assertDoesNotExist()
+    }
 
     @Test
     fun sortingDispatchesToOwnerAndReflectsItsState() {
