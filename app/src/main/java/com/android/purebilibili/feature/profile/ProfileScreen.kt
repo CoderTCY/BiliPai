@@ -22,6 +22,7 @@ import android.app.Activity
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.view.LayoutInflater
 import android.widget.Toast
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.background
@@ -96,7 +97,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import coil3.imageLoader
@@ -1007,7 +1007,7 @@ internal fun resolveProfileSkinVideoRepeatMode(playMode: String?): Int {
 
 @Composable
 @android.annotation.SuppressLint("UnsafeOptInUsageError")
-private fun ProfileSkinVideoBackground(
+internal fun ProfileSkinVideoBackground(
     videoPath: String,
     playMode: String?,
     playbackEnabled: Boolean,
@@ -1056,10 +1056,9 @@ private fun ProfileSkinVideoBackground(
 
     AndroidView(
         factory = { viewContext ->
-            PlayerView(viewContext).apply {
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+            // Keep the video inside the Compose wallpaper plane during clipping and capture.
+            (LayoutInflater.from(viewContext)
+                .inflate(com.android.purebilibili.R.layout.wallpaper_video, null) as PlayerView).apply {
                 setKeepContentOnPlayerReset(true)
                 this.player = player
             }
