@@ -185,20 +185,22 @@ private val defaultVideoCardOnlineCountStore by lazy {
 @Composable
 internal fun rememberVideoCardOnlineCount(
     video: VideoItem,
-    showOnlineCount: Boolean
+    showOnlineCount: Boolean,
+    isVisibleInWindow: Boolean = true,
 ): String {
     if (!shouldLoadVideoCardOnlineCount(showOnlineCount, video.bvid, video.cid)) {
         return ""
     }
     return key(video.bvid, video.cid) {
-        rememberActiveVideoCardOnlineCount(bvid = video.bvid, cid = video.cid)
+        rememberActiveVideoCardOnlineCount(bvid = video.bvid, cid = video.cid, isVisibleInWindow = isVisibleInWindow)
     }
 }
 
 @Composable
 private fun rememberActiveVideoCardOnlineCount(
     bvid: String,
-    cid: Long
+    cid: Long,
+    isVisibleInWindow: Boolean,
 ): String {
     val onlineCountFlow = remember(bvid, cid) {
         defaultVideoCardOnlineCountStore.observe(
@@ -210,7 +212,7 @@ private fun rememberActiveVideoCardOnlineCount(
         defaultVideoCardOnlineCountStore.retain(bvid, cid)
         onDispose { defaultVideoCardOnlineCountStore.release(bvid, cid) }
     }
-    val workAllowed = LocalPageImageLoadingAllowed.current && LocalHomeCardAuxiliaryWorkAllowed.current
+    val workAllowed = isVisibleInWindow && LocalPageImageLoadingAllowed.current && LocalHomeCardAuxiliaryWorkAllowed.current
     // Keep the last displayed text while home is covered or morphing. Dropping only the
     // subscription avoids applying another visible card's shared request result mid-flight.
     val updates = remember(onlineCountFlow, workAllowed) {

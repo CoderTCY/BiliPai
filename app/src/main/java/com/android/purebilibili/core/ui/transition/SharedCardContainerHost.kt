@@ -10,8 +10,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionScope.ResizeMode.Companion.scaleToBounds
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope.OverlayClip
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.SeekableTransitionState
@@ -36,11 +36,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppShapes
 import com.android.purebilibili.core.ui.ContainerLevel
 import com.android.purebilibili.core.ui.LocalAnimatedVisibilityScope
@@ -49,6 +49,8 @@ import com.android.purebilibili.core.ui.motion.rememberSystemReduceMotion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 
@@ -68,7 +70,7 @@ internal fun rememberSharedCardDetailRevealAlpha(
     return animateFloatAsState(
         targetValue = if (contentTransitionReady && contentLoaded) 1f else 0f,
         animationSpec = if (reduceMotion) snap() else tween(
-            SHARED_CARD_CONTENT_FADE_MS, easing = FastOutSlowInEasing,
+            SHARED_CARD_CONTENT_FADE_MS, easing = AppMotionEasing.M1Standard,
         ),
         label = "sharedCardDetailReveal",
     )
@@ -89,9 +91,9 @@ internal fun sharedCardContainerBounds(
             animatedVisibilityScope = visibilityScope,
             // Clear outgoing glyphs early, then reveal the incoming surface. Do not keep
             // both full pages translucent throughout the entire bounds animation.
-            enter = fadeIn(tween(170, delayMillis = 70, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(100, easing = FastOutSlowInEasing)),
-            boundsTransform = { _, _ -> tween(SHARED_CARD_CONTAINER_DURATION_MS, easing = FastOutSlowInEasing) },
+            enter = fadeIn(tween(170, delayMillis = 70, easing = AppMotionEasing.M1Standard)),
+            exit = fadeOut(tween(100, easing = AppMotionEasing.M1Standard)),
+            boundsTransform = { _, _ -> tween(SHARED_CARD_CONTAINER_DURATION_MS, easing = AppMotionEasing.M1Standard) },
             // Cards and detail pages have very different aspect ratios. Stretching the whole
             // subtree to the animated bounds distorts avatars, posters and glyphs on both sides.
             // Fill the moving container without stretching glyphs or shrinking a complete
@@ -165,14 +167,13 @@ internal fun <T : Any> SharedCardContainerHost(
                     // also settles the interrupted initial values. That produces a second
                     // whole-page movement after release. Rewind the same shared bounds first.
                     val restoreFraction = transitionState.fraction
-                    val restoreNanos = (duration * restoreFraction).toLong() * 1_000_000L
-                    if (restoreNanos > 0L && !reduceMotion) {
-                        val start = withFrameNanos { it }
-                        do {
-                            val elapsed = withFrameNanos { it } - start
-                            val progress = (elapsed.toFloat() / restoreNanos).coerceIn(0f, 1f)
-                            transitionState.seekTo(restoreFraction * (1f - progress), null)
-                        } while (progress < 1f)
+                    val restoreMillis = (duration * restoreFraction).toInt()
+                    if (restoreMillis > 0 && !reduceMotion) {
+                        channelFlow {
+                            animate(restoreFraction, 0f,
+                                animationSpec = tween(restoreMillis, easing = LinearEasing),
+                            ) { value, _ -> trySend(value) }
+                        }.conflate().collect { value -> transitionState.seekTo(value, null) }
                     }
                     // Both endpoints now match the original detail pixels; reset state
                     // without starting another bounds/fade animation.

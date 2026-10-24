@@ -110,6 +110,17 @@ internal fun canRevealHomeHeaderForList(
     return listMissing || firstVisibleItemIndex == 0
 }
 
+/** 只在列表真正贴顶时，把下拉位移先分配给尚未展开的顶栏。 */
+internal fun resolveHomeHeaderRevealConsumedY(
+    currentHeaderOffsetPx: Float,
+    deltaY: Float,
+    listAtTop: Boolean,
+    collapseEnabled: Boolean,
+    userInput: Boolean,
+): Float = if (collapseEnabled && userInput && listAtTop && deltaY > 0f) {
+    minOf(deltaY, (-currentHeaderOffsetPx).coerceAtLeast(0f))
+} else 0f
+
 internal fun shouldExpandHomeHeaderForSettledPage(
     currentHeaderOffsetPx: Float,
     firstVisibleItemIndex: Int,
@@ -152,6 +163,7 @@ internal fun reduceHomePreScroll(
     hideType: HomeBarHideType = HomeBarHideType.SYNC,
     instantDirectionThresholdPx: Float = 0.5f,
     isHeaderRevealLocked: Boolean = false,
+    headerConsumedY: Float = 0f,
 ): HomeScrollUpdate {
     // 搜索框跟手下滑收起；离开首屏后保持收起，回顶锁定期内强制展开。
     val nextHeaderOffset = when {
@@ -173,9 +185,10 @@ internal fun reduceHomePreScroll(
     return HomeScrollUpdate(
         headerOffsetPx = nextHeaderOffset,
         bottomBarVisibilityIntent = nextBottomBarIntent,
+        // 被顶栏展开消费的位移不再计入全局滚动偏移，避免贴顶下拉时玻璃效果多算。
         globalScrollOffset = resolveNextHomeGlobalScrollOffset(
             currentOffset = currentGlobalScrollOffset,
-            scrollDeltaY = deltaY,
+            scrollDeltaY = deltaY - headerConsumedY,
             liquidGlassEnabled = liquidGlassEnabled
         ),
         shouldAnimateHeader = shouldAnimateHeader

@@ -3,10 +3,13 @@ package com.android.purebilibili.feature.space
 import android.app.Application
 import android.net.Uri
 import android.widget.Toast
+import androidx.paging.LoadState
+import androidx.paging.PagingConfig
+import com.android.purebilibili.core.paging.ForwardPagingSession
+import kotlinx.coroutines.flow.update
 import com.android.purebilibili.core.refresh.FavoriteFolderUpdateBus
 import com.android.purebilibili.core.store.FavoriteFolderCoverCache
 import com.android.purebilibili.data.model.response.FavoriteInfo
-import com.android.purebilibili.data.model.response.FavoriteResourceData
 import com.android.purebilibili.data.repository.CommentRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -54,37 +57,116 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
         get() = type == "favorite" && id > 0L && (TokenManager.midCache ?: 0L) > 0L &&
             _favoriteFolderInfo.value?.let { (it.attr and 1) == 0 } == true
 
-    private var refreshJob: Job? = null
+    private var pagingSession: ForwardPagingSession<CollectionDetailPageKey, CollectionDetailPageChunk>? = null
     private var pagingJob: Job? = null
     private var requestGeneration = 0L
 
     override fun loadData(showLoading: Boolean) {
         val generation = ++requestGeneration
-        refreshJob?.cancel()
         pagingJob?.cancel()
-        isLoadingMore = false
+        pagingSession = null
         _isLoadingMoreState.value = false
-        hasMore = false
         _hasMoreState.value = false
-        _uiState.value = _uiState.value.copy(
-            isLoading = showLoading || _uiState.value.items.isEmpty(),
-            error = null,
-            loadMoreError = null,
-        )
-        refreshJob = accountRequests.launch {
-            try {
-                val items = fetchItems()
-                currentCoroutineContext().ensureActive()
-                if (generation == requestGeneration) {
-                    _uiState.value = _uiState.value.copy(isLoading = false, items = items)
+        if (id <= 0L) {
+            _uiState.update { it.copy(isLoading = false, items = emptyList()) }
+            return
+        }
+        val identity = accountRequests.identity
+        val requestType = type
+        val requestId = id
+        val requestMid = mid
+        val requestOwner = ownerName
+        val ordinaryFavorite = requestType == SpaceCollectionDetailType.FAVORITE.raw
+        val favoriteDetail = isFavoriteDetail
+        val oldestFirst = ordinaryFavorite && _favoriteDetailSortOrder.value == FavoriteDetailSortOrder.OLDEST_FIRST
+        _uiState.update { it.copy(isLoading = showLoading || it.items.isEmpty(), error = null, loadMoreError = null) }
+        var appliedPages = 0
+        lateinit var session: ForwardPagingSession<CollectionDetailPageKey, CollectionDetailPageChunk>
+        session = ForwardPagingSession(
+            config = PagingConfig(pageSize = 1, initialLoadSize = 1, prefetchDistance = 1, enablePlaceholders = false),
+            sourceFactory = {
+                var resolvedOwnerMid = requestMid
+                collectionDetailPagingSource(ordinaryFavorite, oldestFirst) { number ->
+                    when (requestType) {
+                        "season" -> {
+                            val response = spaceApi.getSeasonArchives(requestMid, requestId, number)
+                            check(response.code == 0) { "加载合集失败：${response.code}" }
+                            val data = checkNotNull(response.data) { "合集内容响应不完整，请重试" }
+                            CollectionDetailServerPage(
+                                data.archives.map { mapSeasonArchiveToVideoItem(it, requestMid, requestOwner) },
+                                resolveSpaceCollectionHasMore(requestType, data.archives.size)
+                            )
+                        }
+                        "series" -> {
+                            val response = spaceApi.getSeriesArchives(requestMid, requestId, number)
+                            check(response.code == 0) { "加载系列失败：${response.code}" }
+                            val data = checkNotNull(response.data) { "系列内容响应不完整，请重试" }
+                            CollectionDetailServerPage(
+                                data.archives.map { mapSeriesArchiveToVideoItem(it, requestMid, requestOwner) },
+                                resolveSpaceCollectionHasMore(requestType, data.archives.size)
+                            )
+                        }
+                        else -> {
+                            val response = if (ordinaryFavorite) {
+                                FavoriteRepository.getFavoriteList(mediaId = requestId, pn = number)
+                            } else FavoriteRepository.getFavoriteSeasonList(seasonId = requestId, pn = number)
+                            val data = response.getOrThrow()
+                            currentCoroutineContext().ensureActive()
+                            data.info?.let { info ->
+                                resolvedOwnerMid = info.upper?.mid?.takeIf { it > 0L }
+                                    ?: info.mid.takeIf { it > 0L } ?: resolvedOwnerMid
+                            }
+                            if (ordinaryFavorite) check(data.medias?.isNotEmpty() == true || data.info?.media_count == 0) {
+                                "收藏夹分页数据为空，请重试"
+                            }
+                            val items = data.medias.orEmpty().map {
+                                it.toVideoItem(ownerFallbackMid = resolvedOwnerMid, ownerFallbackName = requestOwner)
+                            }
+                            CollectionDetailServerPage(
+                                items = items,
+                                hasMore = resolveSpaceCollectionHasMore(requestType, items.size, data.has_more),
+                                info = data.info,
+                                invalidCount = data.medias.orEmpty().count { it.attr != 0 },
+                            )
+                        }
+                    }
                 }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                if (generation == requestGeneration) {
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message ?: "加载失败")
+            },
+            onChanged = { pages, states ->
+                if (pagingSession === session && generation == requestGeneration && accountRequests.isCurrent(identity) && states != null) {
+                    val refreshError = (states.refresh as? LoadState.Error)?.error
+                    val appendError = (states.append as? LoadState.Error)?.error
+                    val ready = states.refresh is LoadState.NotLoading && pages.isNotEmpty()
+                    if (ready && pages.size > appliedPages && ordinaryFavorite) {
+                        pages.lastOrNull()?.page?.info?.let(::updateFavoriteResourceInfo)
+                    }
+                    val items = if (ready) pages.flatMap { it.page.items } else _uiState.value.items
+                    _uiState.update { it.copy(
+                        items = items,
+                        isLoading = states.refresh is LoadState.Loading && (showLoading || it.items.isEmpty()),
+                        error = refreshError?.let { error -> error.message ?: "加载失败" },
+                        loadMoreError = appendError?.let { error -> error.message ?: "加载更多失败，请稍后重试" },
+                    ) }
+                    _isLoadingMoreState.value = states.append is LoadState.Loading
+                    _hasMoreState.value = !states.append.endOfPaginationReached
+                    if (ready && favoriteDetail) {
+                        val last = pages.last()
+                        _favoriteDetailProgressState.value = FavoriteDetailProgressState(
+                            loadedCount = items.size,
+                            expectedCount = pages.lastOrNull { it.page.info != null }?.page?.info?.media_count
+                                ?: _favoriteDetailProgressState.value.expectedCount,
+                            currentPage = last.number,
+                            lastAddedCount = last.page.items.size,
+                            invalidCount = pages.sumOf { it.page.invalidCount },
+                            hasMore = _hasMoreState.value,
+                        )
+                    }
+                    if (ready) appliedPages = pages.size
                 }
             }
-        }
+        )
+        pagingSession = session
+        pagingJob = accountRequests.launch { session.run() }
     }
 
     internal fun changeFavoriteDetailSortOrder(order: FavoriteDetailSortOrder): Boolean {
@@ -95,10 +177,7 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
         return true
     }
 
-    // Pagination
-    private var currentPage = 1
-    private var hasMore = true
-    private var isLoadingMore = false
+    private val isLoadingMore: Boolean get() = _isLoadingMoreState.value
     
     private val _isLoadingMoreState = MutableStateFlow(false)
     val isLoadingMoreState = _isLoadingMoreState.asStateFlow()
@@ -107,13 +186,10 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
     val hasMoreState = _hasMoreState.asStateFlow()
     override fun onAccountChanged() {
         ++requestGeneration
-        refreshJob?.cancel()
         pagingJob?.cancel()
         favoriteFolderOwnerMid = 0L
         _favoriteFolderInfo.value = null
-        currentPage = 1
-        hasMore = true
-        isLoadingMore = false
+        pagingSession = null
         _isLoadingMoreState.value = false
         _hasMoreState.value = true
         _favoriteDetailProgressState.value = FavoriteDetailProgressState()
@@ -141,11 +217,10 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
 
     fun init(type: String, id: Long, mid: Long, title: String, ownerName: String = "") {
         ++requestGeneration
-        refreshJob?.cancel()
         pagingJob?.cancel()
         _favoriteFolderInfo.value = null
         favoriteFolderOwnerMid = 0L
-        isLoadingMore = false
+        pagingSession = null
         _isLoadingMoreState.value = false
         val request = resolveSpaceCollectionDetailRequest(type, id, mid, title)
         if (request == null) {
@@ -154,7 +229,6 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
             this.mid = 0L
             this.ownerName = ownerName
             this.pageTitle = title
-            hasMore = false
             _hasMoreState.value = false
             _uiState.value = _uiState.value.copy(
                 title = title,
@@ -180,71 +254,7 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
         loadData()
     }
 
-    override suspend fun fetchItems(): List<VideoItem> {
-        if (id == 0L) return emptyList()
-
-        if (type == "season") {
-            return fetchSeasonArchives()
-        } else if (type == "series") {
-            return fetchSeriesArchives()
-        } else if (isFavoriteDetail) {
-            return fetchFavoriteResources()
-        }
-        return emptyList()
-    }
-
-    private suspend fun fetchSeasonArchives(): List<VideoItem> {
-        currentPage = 1
-        try {
-            val response = spaceApi.getSeasonArchives(mid, id, currentPage)
-            currentCoroutineContext().ensureActive()
-            if (response.code == 0) {
-                val data = response.data
-                if (data != null) {
-                    val archives = data.archives
-                    hasMore = archives.size >= 30 // Assumption based on page size
-                     _hasMoreState.value = hasMore
-                     
-                    return archives.map { item -> mapSeasonArchiveToVideoItem(item, mid, ownerName) }
-                }
-            }
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            e.printStackTrace()
-        }
-        return emptyList()
-    }
-
-    private suspend fun fetchSeriesArchives(): List<VideoItem> {
-        currentPage = 1
-         try {
-            val response = spaceApi.getSeriesArchives(mid, id, currentPage)
-            currentCoroutineContext().ensureActive()
-            if (response.code == 0) {
-                val data = response.data
-                if (data != null) {
-                    val archives = data.archives
-                    hasMore = archives.size >= 30
-                    _hasMoreState.value = hasMore
-
-                    return archives.map { item -> mapSeriesArchiveToVideoItem(item, mid, ownerName) }
-                }
-            }
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            e.printStackTrace()
-        }
-        return emptyList()
-    }
-
-    private suspend fun requestFavoritePage(page: Int): FavoriteResourceData {
-        val response = FavoriteRepository.getFavoriteList(mediaId = id, pn = page).getOrThrow()
-        currentCoroutineContext().ensureActive()
-        check(response.medias?.isNotEmpty() == true || response.info?.media_count == 0) {
-            "收藏夹分页数据为空，请重试"
-        }
-        return response
-    }
+    override suspend fun fetchItems(): List<VideoItem> = _uiState.value.items
 
     private fun updateFavoriteResourceInfo(info: FavoriteInfo) {
         _favoriteFolderInfo.value = info
@@ -258,51 +268,7 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
     }
 
 
-    private suspend fun fetchFavoriteResources(
-        page: Int = 1,
-        append: Boolean = false,
-    ): List<VideoItem> {
-        val ordinaryFolder = type == SpaceCollectionDetailType.FAVORITE.raw
-        val oldestFirst = ordinaryFolder &&
-            _favoriteDetailSortOrder.value == FavoriteDetailSortOrder.OLDEST_FIRST
-        var serverPage = page
-        var expectedCount: Int? = null
-        val response = if (ordinaryFolder) {
-            val requested = requestFavoritePage(page)
-            if (!append) {
-                val info = requireNotNull(requested.info) { "无法获取收藏夹信息" }
-                updateFavoriteResourceInfo(info)
-                expectedCount = info.media_count
-                if (oldestFirst) serverPage = favoriteLastServerPage(info.media_count)
-            }
-            if (serverPage == page) requested else requestFavoritePage(serverPage)
-        } else {
-            FavoriteRepository.getFavoriteSeasonList(seasonId = id, pn = page).getOrThrow()
-        }
-        currentCoroutineContext().ensureActive()
-        if (ordinaryFolder) response.info?.let(::updateFavoriteResourceInfo)
-        val mediaItems = response.medias.orEmpty()
-        val ordered = if (oldestFirst) mediaItems.asReversed() else mediaItems
-        val items = ordered.map {
-            it.toVideoItem(ownerFallbackMid = mid, ownerFallbackName = ownerName)
-        }
-        val previousProgress = if (append) _favoriteDetailProgressState.value else FavoriteDetailProgressState()
-        hasMore = if (oldestFirst) serverPage > 1 else
-            resolveSpaceCollectionHasMore(type, items.size, response.has_more)
-        _hasMoreState.value = hasMore
-        currentPage = serverPage
-        _favoriteDetailProgressState.value = FavoriteDetailProgressState(
-            loadedCount = if (append) _uiState.value.items.size + items.size else items.size,
-            expectedCount = expectedCount ?: response.info?.media_count ?: previousProgress.expectedCount,
-            currentPage = serverPage,
-            lastAddedCount = items.size,
-            invalidCount = previousProgress.invalidCount + mediaItems.count { it.attr != 0 },
-            hasMore = hasMore,
-        )
-        return items
-    }
-    
-    // ---- 收藏夹详情批量管理（对齐 PiliPlus fav_detail）----
+    // ---- 收藏夹详情批量管理 ----
 
     private val _transferFolders = MutableStateFlow<List<FavFolder>>(emptyList())
     val transferFolders = _transferFolders.asStateFlow()
@@ -370,8 +336,8 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
     }
 
     fun retryLoadMore() {
-        _uiState.value = _uiState.value.copy(loadMoreError = null)
-        loadMore()
+        if (_isManagingState.value || !accountRequests.isCurrent()) return
+        pagingSession?.retry()
     }
 
     internal fun shareFavoriteFolderToDynamic() {
@@ -493,58 +459,8 @@ class SeasonSeriesDetailViewModel(application: Application) : BaseListViewModel(
     }
 
     fun loadMore() {
-        if (isLoadingMore || !hasMore || _uiState.value.isLoading ||
-            _uiState.value.loadMoreError != null || _isManagingState.value) return
-        isLoadingMore = true
-        _isLoadingMoreState.value = true
-        val generation = requestGeneration
-        val oldestFirst = type == "favorite" &&
-            _favoriteDetailSortOrder.value == FavoriteDetailSortOrder.OLDEST_FIRST
-        val nextPage = currentPage + if (oldestFirst) -1 else 1
-        pagingJob = accountRequests.launch {
-            try {
-                val newItems = when (type) {
-                    "season" -> {
-                        val response = spaceApi.getSeasonArchives(mid, id, nextPage)
-                        check(response.code == 0) { "加载更多失败：${response.code}" }
-                        val data = checkNotNull(response.data) { "合集内容响应不完整，请重试" }
-                        data.archives.map { mapSeasonArchiveToVideoItem(it, mid, ownerName) }
-                    }
-                    "series" -> {
-                        val response = spaceApi.getSeriesArchives(mid, id, nextPage)
-                        check(response.code == 0) { "加载更多失败：${response.code}" }
-                        val data = checkNotNull(response.data) { "系列内容响应不完整，请重试" }
-                        data.archives.map { mapSeriesArchiveToVideoItem(it, mid, ownerName) }
-                    }
-                    "favorite", "favorite_season" -> fetchFavoriteResources(nextPage, append = true)
-                    else -> return@launch
-                }
-                currentCoroutineContext().ensureActive()
-                if (generation != requestGeneration) return@launch
-                if (!isFavoriteDetail) {
-                    hasMore = resolveSpaceCollectionHasMore(type, newItems.size)
-                    _hasMoreState.value = hasMore
-                }
-                currentPage = nextPage
-                _uiState.value = _uiState.value.copy(
-                    items = _uiState.value.items + newItems,
-                    loadMoreError = null,
-                )
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                // 失败不推进页码、不关闭 hasMore，保留已加载内容供同页重试。
-                if (generation == requestGeneration) {
-                    _uiState.value = _uiState.value.copy(
-                        loadMoreError = e.message ?: "加载更多失败，请稍后重试"
-                    )
-                }
-            } finally {
-                if (generation == requestGeneration) {
-                    isLoadingMore = false
-                    _isLoadingMoreState.value = false
-                }
-            }
-        }
+        if (_isManagingState.value || !accountRequests.isCurrent()) return
+        pagingSession?.append()
     }
 
     init {

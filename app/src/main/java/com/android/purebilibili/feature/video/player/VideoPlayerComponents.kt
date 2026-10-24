@@ -232,7 +232,7 @@ fun UpInfoSection(
             ),
             color = followContainer,
             shape = AppShapes.container(ContainerLevel.Card),
-            modifier = Modifier.height(32.dp)
+            modifier = Modifier.heightIn(min = 32.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -249,6 +249,8 @@ fun UpInfoSection(
                 }
                 AppText(
                     text = if (isFollowing) "已关注" else "关注",
+                    maxLines = 1,
+                    softWrap = false,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                     color = followContent
                 )

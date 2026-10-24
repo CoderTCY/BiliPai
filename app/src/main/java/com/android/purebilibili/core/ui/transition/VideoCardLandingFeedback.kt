@@ -1,7 +1,6 @@
 package com.android.purebilibili.core.ui.transition
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.KeyframesSpec
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
@@ -17,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.LocalComponentMotionEnabled
 import com.android.purebilibili.core.ui.LocalSystemReduceMotion
 import com.android.purebilibili.core.ui.adaptive.MotionTier
@@ -28,8 +28,8 @@ import kotlinx.coroutines.launch
 internal fun videoCardLandingReleaseSpec(releaseDp: Float): KeyframesSpec<Float> = keyframes {
     durationMillis = 300
     0f at 0
-    0f at 100 using FastOutSlowInEasing
-    releaseDp at 190 using FastOutSlowInEasing
+    0f at 100 using AppMotionEasing.M1Standard
+    releaseDp at 190 using AppMotionEasing.M1Standard
     0f at 300
 }
 

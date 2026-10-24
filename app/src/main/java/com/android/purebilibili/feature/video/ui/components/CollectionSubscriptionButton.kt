@@ -1,5 +1,8 @@
 package com.android.purebilibili.feature.video.ui.components
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
 import com.android.purebilibili.core.ui.AppContentColors
 
 import android.widget.Toast
@@ -35,6 +38,7 @@ internal fun CollectionSubscriptionButton(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val subscriptionHaptic = rememberHapticFeedback()
     val cachedIsSubscribed by SettingsManager
         .isCollectionSubscribed(context, collectionId)
         .collectAsStateWithLifecycle(initialValue = false
@@ -72,6 +76,7 @@ internal fun CollectionSubscriptionButton(
                             subscribe = targetSubscribed
                         )
                         .onSuccess { subscribed ->
+                            if (subscribed != isSubscribed) subscriptionHaptic(HapticType.LIGHT)
                             remoteIsSubscribed = subscribed
                             SettingsManager.setCollectionSubscription(context, collectionId, subscribed)
                             Toast.makeText(
@@ -104,6 +109,8 @@ internal fun CollectionSubscriptionButton(
                 AppContentColors.secondaryText()
             },
             fontSize = fontSize,
+            maxLines = 1,
+            softWrap = false,
             fontWeight = FontWeight.Medium
         )
     }

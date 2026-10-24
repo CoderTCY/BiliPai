@@ -441,7 +441,12 @@ fun BangumiPlayerContent(
                     } else {
                         resolveBangumiFollowStatusLabel(detail.userStatus)
                     }
-                    AppText(followLabel)
+                    AppText(
+                        text = followLabel,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }

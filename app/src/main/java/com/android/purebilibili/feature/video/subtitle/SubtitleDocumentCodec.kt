@@ -1,10 +1,14 @@
 package com.android.purebilibili.feature.video.subtitle
 
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
+import androidx.media3.extractor.text.SubtitleParser
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.Locale
-import kotlin.math.roundToLong
 
 enum class SubtitleDocumentFormat(val extension: String, val mimeType: String) {
     JSON("json", "application/json"), WEBVTT("vtt", "text/vtt"), SRT("srt", "application/x-subrip")
@@ -27,73 +31,37 @@ fun decodeSubtitleDocument(bytes: ByteArray): String {
     return bytes.toString(charset).removePrefix("\uFEFF")
 }
 
-private val cueTiming = Regex("^\\s*([0-9:.,]+)\\s*-->\\s*([0-9:.,]+)(?:\\s+.*)?$")
-// Escape both literal braces for Android's ICU regex engine; this file also initializes during playback.
-private val assOverrides = Regex("\\{[^}]*\\}")
-private val textTags = Regex("<[^>]*>")
-
 fun parseSubtitleDocument(fileName: String, source: String): List<SubtitleCue> {
     val raw = source.removePrefix("\uFEFF").replace("\r\n", "\n").replace('\r', '\n')
     val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-    val cues = when {
-        extension in setOf("json", "bcc") || raw.trimStart().startsWith("{") -> parseBiliSubtitleBody(raw)
-        extension in setOf("ass", "ssa") || raw.contains("[Events]", ignoreCase = true) -> parseAss(raw)
-        else -> parseTimedText(raw)
+    val cues = if (extension in setOf("json", "bcc") || raw.trimStart().startsWith("{")) {
+        parseBiliSubtitleBody(raw)
+    } else {
+        val mimeType = when {
+            extension in setOf("ass", "ssa") || raw.contains("[Events]", ignoreCase = true) -> MimeTypes.TEXT_SSA
+            extension == "vtt" || raw.trimStart().startsWith("WEBVTT") -> MimeTypes.TEXT_VTT
+            else -> MimeTypes.APPLICATION_SUBRIP
+        }
+        parseStandardSubtitle(raw, mimeType)
     }.filter { it.endMs > it.startMs && it.content.isNotBlank() }.sortedBy { it.startMs }
     require(cues.isNotEmpty()) { "未找到有效字幕；支持 JSON/BCC、WEBVTT、SRT、ASS" }
     return cues
 }
 
-private fun timestampMs(raw: String): Long {
-    val parts = raw.trim().replace(',', '.').split(':')
-    require(parts.size in 2..3) { "无效字幕时间" }
-    val seconds = parts.last().toDouble()
-    val minutes = parts[parts.lastIndex - 1].toLong()
-    val hours = if (parts.size == 3) parts.first().toLong() else 0L
-    require(seconds.isFinite() && seconds >= 0 && seconds < 60 && minutes >= 0 && (parts.size == 2 || minutes < 60) && hours >= 0)
-    return hours * 3_600_000 + minutes * 60_000 + (seconds * 1000).roundToLong()
-}
-
-private fun plainText(text: String): String = text.replace(textTags, "")
-    .replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").replace("&amp;", "&")
-
-private fun parseTimedText(raw: String): List<SubtitleCue> {
-    val lines = raw.lines()
-    val result = mutableListOf<SubtitleCue>()
-    var index = 0
-    while (index < lines.size) {
-        val line = lines[index].trim()
-        if (line.startsWith("NOTE") || line == "STYLE" || line == "REGION") {
-            while (index < lines.size && lines[index].isNotBlank()) index++
-            continue
-        }
-        val timing = cueTiming.matchEntire(line)
-        if (timing == null) { index++; continue }
-        index++
-        val body = mutableListOf<String>()
-        while (index < lines.size && lines[index].isNotBlank()) body += lines[index++]
-        result += SubtitleCue(timestampMs(timing.groupValues[1]), timestampMs(timing.groupValues[2]), plainText(body.joinToString("\n")).trim())
-    }
-    return result
-}
-
-private fun parseAss(raw: String): List<SubtitleCue> {
-    var events = false
-    var fields = listOf("layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text")
+/** 标准格式由媒体解析器处理；转换为本项目字幕工具共用的毫秒文本时间轴。 */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private fun parseStandardSubtitle(source: String, mimeType: String): List<SubtitleCue> {
+    val format = Format.Builder().setSampleMimeType(mimeType).build()
+    val parser = DefaultSubtitleParserFactory().create(format)
+    val bytes = source.toByteArray(Charsets.UTF_8)
     return buildList {
-        raw.lineSequence().forEach { sourceLine ->
-            val line = sourceLine.trim()
-            if (line.startsWith("[")) { events = line.equals("[Events]", true); return@forEach }
-            if (!events) return@forEach
-            if (line.startsWith("Format:", true)) {
-                fields = line.substringAfter(':').split(',').map { it.trim().lowercase(Locale.ROOT) }
-            } else if (line.startsWith("Dialogue:", true)) {
-                val values = line.substringAfter(':').trimStart().split(',', limit = fields.size)
-                if (values.size != fields.size) return@forEach
-                fun field(name: String): String? = fields.indexOf(name).takeIf { it >= 0 }?.let { values[it] }
-                val text = field("text") ?: return@forEach
-                add(SubtitleCue(timestampMs(field("start") ?: return@forEach), timestampMs(field("end") ?: return@forEach),
-                    text.replace(assOverrides, "").replace("\\N", "\n").replace("\\n", "\n").replace("\\h", " ").trim()))
+        parser.parse(bytes, SubtitleParser.OutputOptions.allCues()) { timed ->
+            if (timed.startTimeUs != C.TIME_UNSET && timed.endTimeUs != C.TIME_UNSET) {
+                val text = timed.cues.mapNotNull { it.text?.toString()?.replace('\u00A0', ' ')?.trim()?.takeIf(String::isNotBlank) }
+                    .joinToString("\n")
+                if (text.isNotBlank()) {
+                    add(SubtitleCue(timed.startTimeUs / 1000, timed.endTimeUs / 1000, text))
+                }
             }
         }
     }

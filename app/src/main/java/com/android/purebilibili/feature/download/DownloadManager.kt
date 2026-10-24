@@ -1,6 +1,7 @@
 package com.android.purebilibili.feature.download
 
 import com.android.purebilibili.core.network.buildAppDns
+import android.util.AtomicFile
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
@@ -801,7 +802,11 @@ object DownloadManager {
         )
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun shouldRefreshDownloadUrlAfterFailure(error: Throwable): Boolean {
+        if (error is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException &&
+            error.responseCode in setOf(401, 403, 416)
+        ) return true
         val message = error.message?.lowercase().orEmpty()
         return message.contains("http 401") ||
             message.contains("http 403") ||
@@ -895,8 +900,10 @@ object DownloadManager {
     private fun loadTasks() {
         try {
             val file = tasksFile ?: return
-            if (file.exists()) {
-                val content = file.readText()
+            val atomicFile = AtomicFile(file)
+            // 旧备份也交给原子读取恢复，避免主文件缺失时丢掉可恢复的任务。
+            if (file.exists() || File(file.path + ".bak").exists()) {
+                val content = atomicFile.openRead().bufferedReader().use { it.readText() }
                 val list = json.decodeFromString<List<DownloadTask>>(content)
                 _tasks.value = list
                     .map(::normalizeRestoredDownloadTask)
@@ -917,11 +924,14 @@ object DownloadManager {
                 val content = json.encodeToString(snapshot.values.toList())
                 val parent = file.parentFile ?: return@withLock
                 if (!parent.exists()) parent.mkdirs()
-                val tempFile = File(parent, "${file.name}.tmp")
-                tempFile.writeText(content)
-                if (!tempFile.renameTo(file)) {
-                    file.writeText(content)
-                    tempFile.delete()
+                val atomicFile = AtomicFile(file)
+                val output = atomicFile.startWrite()
+                try {
+                    output.write(content.toByteArray(Charsets.UTF_8))
+                    atomicFile.finishWrite(output)
+                } catch (failure: Throwable) {
+                    atomicFile.failWrite(output)
+                    throw failure
                 }
                 lastPersistedTasks = snapshot
             } catch (e: Exception) {

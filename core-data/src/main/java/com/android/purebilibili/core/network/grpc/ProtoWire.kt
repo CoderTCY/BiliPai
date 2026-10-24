@@ -1,5 +1,8 @@
 package com.android.purebilibili.core.network.grpc
 
+import com.google.protobuf.CodedInputStream
+import com.google.protobuf.CodedOutputStream
+import com.google.protobuf.WireFormat
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -8,10 +11,10 @@ import java.util.zip.GZIPOutputStream
 
 // protobuf wire 编解码为共享网络能力，与 BiliGrpcClient 一并供两端消费。
 object ProtoWire {
-    const val WIRE_VARINT = 0
-    const val WIRE_FIXED64 = 1
-    const val WIRE_LENGTH_DELIMITED = 2
-    const val WIRE_FIXED32 = 5
+    const val WIRE_VARINT = WireFormat.WIRETYPE_VARINT
+    const val WIRE_FIXED64 = WireFormat.WIRETYPE_FIXED64
+    const val WIRE_LENGTH_DELIMITED = WireFormat.WIRETYPE_LENGTH_DELIMITED
+    const val WIRE_FIXED32 = WireFormat.WIRETYPE_FIXED32
 
     data class Field(
         val number: Int,
@@ -49,88 +52,61 @@ object ProtoWire {
         }
     }
 
-    fun int64(fieldNumber: Int, value: Long): ByteArray = field(fieldNumber, WIRE_VARINT, varint(value))
+    fun int64(fieldNumber: Int, value: Long): ByteArray = encode { writeInt64(fieldNumber, value) }
 
-    fun int32(fieldNumber: Int, value: Int): ByteArray = int64(fieldNumber, value.toLong())
+    fun int32(fieldNumber: Int, value: Int): ByteArray = encode { writeInt32(fieldNumber, value) }
 
-    fun bool(fieldNumber: Int, value: Boolean): ByteArray = int64(fieldNumber, if (value) 1L else 0L)
-    /** Packed repeated int64 — wire type 2 (length-delimited), payload = concatenated varints. */
+    fun bool(fieldNumber: Int, value: Boolean): ByteArray = encode { writeBool(fieldNumber, value) }
+
     fun packedInt64(fieldNumber: Int, values: List<Long>): ByteArray {
         if (values.isEmpty()) return ByteArray(0)
-        val payload = ByteArrayOutputStream(values.size)
-        values.forEach { payload.write(varint(it)) }
-        val data = payload.toByteArray()
-        return field(fieldNumber, WIRE_LENGTH_DELIMITED, varint(data.size.toLong()), data)
+        val payload = encode { values.forEach { writeInt64NoTag(it) } }
+        return bytes(fieldNumber, payload)
     }
 
-    fun string(fieldNumber: Int, value: String): ByteArray {
-        if (value.isEmpty()) return ByteArray(0)
-        val bytes = value.toByteArray(Charsets.UTF_8)
-        return field(fieldNumber, WIRE_LENGTH_DELIMITED, varint(bytes.size.toLong()), bytes)
-    }
+    fun string(fieldNumber: Int, value: String): ByteArray =
+        if (value.isEmpty()) ByteArray(0) else encode { writeString(fieldNumber, value) }
 
-    fun bytes(fieldNumber: Int, value: ByteArray): ByteArray {
-        if (value.isEmpty()) return ByteArray(0)
-        return field(fieldNumber, WIRE_LENGTH_DELIMITED, varint(value.size.toLong()), value)
-    }
+    fun bytes(fieldNumber: Int, value: ByteArray): ByteArray =
+        if (value.isEmpty()) ByteArray(0) else encode { writeByteArray(fieldNumber, value) }
 
-    fun double(fieldNumber: Int, value: Double): ByteArray {
-        val fixed = ByteBuffer.allocate(8)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .putDouble(value)
-            .array()
-        return field(fieldNumber, WIRE_FIXED64, fixed)
-    }
+    fun double(fieldNumber: Int, value: Double): ByteArray = encode { writeDouble(fieldNumber, value) }
 
+    /** 字段映射保持不变，长度、标签、变长整数和边界检查交给 Protobuf 运行库。 */
     fun parseFields(data: ByteArray): List<Field> {
-        val reader = Reader(data)
-        val fields = mutableListOf<Field>()
-        while (!reader.exhausted()) {
-            val tag = reader.readVarint().toInt()
-            if (tag == 0) break
-            val number = tag ushr 3
-            val wireType = tag and 0x07
-            fields += when (wireType) {
-                WIRE_VARINT -> Field(number, wireType, varint = reader.readVarint())
-                WIRE_FIXED64 -> Field(number, wireType, fixed64 = reader.readFixed64())
-                WIRE_LENGTH_DELIMITED -> {
-                    val length = reader.readVarint().toInt()
-                    Field(number, wireType, bytes = reader.readBytes(length))
+        val input = CodedInputStream.newInstance(data)
+        return buildList {
+            while (true) {
+                val tag = input.readTag()
+                if (tag == 0) break
+                val number = WireFormat.getTagFieldNumber(tag)
+                val wireType = WireFormat.getTagWireType(tag)
+                val field = when (wireType) {
+                    WIRE_VARINT -> Field(number, wireType, varint = input.readInt64())
+                    WIRE_FIXED64 -> Field(number, wireType, fixed64 = input.readFixed64())
+                    WIRE_LENGTH_DELIMITED -> Field(number, wireType, bytes = input.readByteArray())
+                    WIRE_FIXED32 -> Field(number, wireType, fixed32 = input.readFixed32())
+                    // 未识别的旧式 group 交由运行库整体跳过，避免误读嵌套字段。
+                    else -> {
+                        require(input.skipField(tag)) { "Unexpected protobuf end-group" }
+                        null
+                    }
                 }
-                WIRE_FIXED32 -> Field(number, wireType, fixed32 = reader.readFixed32())
-                else -> error("Unsupported protobuf wire type: $wireType")
+                if (field != null) add(field)
             }
         }
-        return fields
     }
 
     fun stringValue(field: Field): String = decodeStringValue(field.bytes)
 
-    fun doubleValue(field: Field): Double {
-        return ByteBuffer.wrap(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(field.fixed64).array())
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .double
-    }
+    fun doubleValue(field: Field): Double = java.lang.Double.longBitsToDouble(field.fixed64)
 
-    private fun field(fieldNumber: Int, wireType: Int, vararg payload: ByteArray): ByteArray {
-        return ByteArrayOutputStream().use { out ->
-            out.write(varint(((fieldNumber shl 3) or wireType).toLong()))
-            payload.forEach(out::write)
-            out.toByteArray()
-        }
-    }
-
-    private fun varint(value: Long): ByteArray {
-        var current = value
-        val out = ByteArrayOutputStream()
-        while (true) {
-            if ((current and 0x7FL.inv()) == 0L) {
-                out.write(current.toInt())
-                return out.toByteArray()
-            }
-            out.write(((current and 0x7F) or 0x80).toInt())
-            current = current ushr 7
-        }
+    private inline fun encode(write: CodedOutputStream.() -> Unit): ByteArray {
+        val bytes = ByteArrayOutputStream()
+        val output = CodedOutputStream.newInstance(bytes)
+        write(output)
+        output.flush()
+        return bytes.toByteArray()
     }
 
     private fun gzip(bytes: ByteArray): ByteArray {
@@ -271,47 +247,4 @@ object ProtoWire {
     private const val LOW_SURROGATE_START = 0xDC00
     private const val LOW_SURROGATE_END = 0xDFFF
 
-    private class Reader(private val data: ByteArray) {
-        private var position = 0
-
-        fun exhausted(): Boolean = position >= data.size
-
-        fun readVarint(): Long {
-            var shift = 0
-            var result = 0L
-            while (shift < 64) {
-                val byte = readByte().toLong() and 0xFF
-                result = result or ((byte and 0x7F) shl shift)
-                if ((byte and 0x80) == 0L) return result
-                shift += 7
-            }
-            error("Malformed protobuf varint")
-        }
-
-        fun readFixed64(): Long {
-            require(position + 8 <= data.size) { "Unexpected EOF reading fixed64" }
-            val value = ByteBuffer.wrap(data, position, 8).order(ByteOrder.LITTLE_ENDIAN).long
-            position += 8
-            return value
-        }
-
-        fun readFixed32(): Int {
-            require(position + 4 <= data.size) { "Unexpected EOF reading fixed32" }
-            val value = ByteBuffer.wrap(data, position, 4).order(ByteOrder.LITTLE_ENDIAN).int
-            position += 4
-            return value
-        }
-
-        fun readBytes(length: Int): ByteArray {
-            require(length >= 0 && position + length <= data.size) { "Unexpected EOF reading bytes: $length" }
-            return data.copyOfRange(position, position + length).also {
-                position += length
-            }
-        }
-
-        private fun readByte(): Byte {
-            require(position < data.size) { "Unexpected EOF reading byte" }
-            return data[position++]
-        }
-    }
 }

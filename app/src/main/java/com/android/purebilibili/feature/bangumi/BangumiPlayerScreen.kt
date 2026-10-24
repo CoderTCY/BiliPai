@@ -1,6 +1,7 @@
 // 文件路径: feature/bangumi/BangumiPlayerScreen.kt
 package com.android.purebilibili.feature.bangumi
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 import com.android.purebilibili.core.ui.components.appElasticPress
 
@@ -80,7 +81,6 @@ import coil3.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import com.android.purebilibili.core.util.FormatUtils
 import androidx.compose.material.icons.Icons
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -1068,7 +1068,7 @@ fun BangumiPlayerScreen(
                     inlinePlayerCollapseState.layoutReconciled ||
                     !inlineCollapseEnabled
             ) {
-                tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                tween(durationMillis = 280, easing = AppMotionEasing.M1Standard)
             } else {
                 snap()
             },

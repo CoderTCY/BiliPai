@@ -231,6 +231,8 @@ class VideoActivity : ComponentActivity() {
                         })
                     },
                     LocalWindowSizeClass provides windowSizeClass,
+                    com.android.purebilibili.core.ui.LocalAdaptiveScaffoldHazeFactory provides
+                        { userEnabled -> com.android.purebilibili.core.ui.blur.rememberAppScaffoldHazeHandle(userEnabled) },
                     LocalAppWindowAdaptiveInfo provides appWindowAdaptiveInfo,
                     com.android.purebilibili.core.ui.LocalHingeSafeOverlayRegions provides
                         com.android.purebilibili.core.ui.adaptive.rememberHingeSafeOverlayRegions(

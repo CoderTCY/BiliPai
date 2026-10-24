@@ -1,6 +1,5 @@
 package com.android.purebilibili.core.ui.skeleton
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -12,6 +11,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.store.SkeletonSettingsStore
 
 @Composable
@@ -32,7 +32,7 @@ fun rememberGentleSkeletonPulse(): State<Float> {
         initialValue = 0.05f,
         targetValue = 0.95f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
+            animation = tween(1400, easing = AppMotionEasing.M1Standard),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "gentleSkeletonPulse",

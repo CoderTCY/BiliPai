@@ -1,8 +1,15 @@
 package com.android.purebilibili.feature.video.ui.overlay
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -168,4 +175,44 @@ internal fun OverlayChapterListPanel(
         showViewPoints = showViewPoints,
         onShowViewPointsChange = onShowViewPointsChange,
     )
+}
+
+/** 常驻章节的可见条贴底，点击区域向上扩展；锁屏时仅展示。 */
+@Composable
+internal fun OverlayPersistentChapterBar(
+    progressProvider: () -> PlayerProgress,
+    viewPoints: List<ViewPoint>,
+    onChapterClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onHeightChanged: (Int) -> Unit = {},
+) {
+    val latestOnHeightChanged by rememberUpdatedState(onHeightChanged)
+    val progress = progressProvider()
+    if (viewPoints.isEmpty() || progress.duration <= 0L) return
+    DisposableEffect(Unit) {
+        onDispose { latestOnHeightChanged(0) }
+    }
+    Box(
+        modifier = modifier
+            .onSizeChanged { latestOnHeightChanged(it.height) }
+            .fillMaxWidth()
+            .clickable(
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = "查看完整章节",
+                onClick = onChapterClick,
+            )
+            .heightIn(min = 40.dp),
+        // 保留点击高度，但可见章节条贴住底边，不在条下方留空。
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        ViewPointSegmentBar(
+            viewPoints = viewPoints,
+            durationMs = progress.duration,
+            currentPositionMs = progress.current,
+            onSeek = {},
+            interactive = false,
+        )
+    }
 }

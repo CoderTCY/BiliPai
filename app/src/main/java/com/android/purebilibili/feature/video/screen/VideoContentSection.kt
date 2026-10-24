@@ -1,6 +1,9 @@
 // 文件路径: feature/video/screen/VideoContentSection.kt
 package com.android.purebilibili.feature.video.screen
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
+import com.android.purebilibili.feature.video.ui.components.RelatedVideoList
+
 import com.android.purebilibili.core.ui.AppContentColors
 
 import androidx.compose.material.icons.outlined.Edit
@@ -12,7 +15,6 @@ import com.android.purebilibili.core.ui.components.AppHorizontalDivider
 
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.animation.*
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -326,15 +328,6 @@ internal fun isVideoContentCommentListAtTop(
     firstVisibleItemScrollOffset: Int,
 ): Boolean = firstVisibleItemIndex <= 0 && firstVisibleItemScrollOffset <= 0
 
-internal fun shouldEnableVideoContentTabBarCollapse(
-    settingEnabled: Boolean,
-    selectedTabIndex: Int,
-    isPagerScrollInProgress: Boolean,
-    commentPageIndex: Int = 1,
-): Boolean = shouldKeepVideoContentTabBarCollapse(settingEnabled, selectedTabIndex, commentPageIndex) &&
-    !isPagerScrollInProgress
-
-/** 分页手势只暂停纵向位移消费，不重置当前评论页已收起的标签栏。 */
 internal fun shouldKeepVideoContentTabBarCollapse(
     settingEnabled: Boolean,
     selectedTabIndex: Int,
@@ -424,9 +417,11 @@ internal fun resolveVideoContentTabBarCollapsePxWhenListLeavesTop(
     maxCollapsePx: Float,
     listAtTop: Boolean,
     enabled: Boolean,
+    returningToTop: Boolean = false,
 ): Float {
     if (!enabled || maxCollapsePx <= 0f) return 0f
     if (!listAtTop) return maxCollapsePx
+    if (returningToTop) return 0f
     return collapsePx.coerceIn(0f, maxCollapsePx)
 }
 
@@ -766,12 +761,10 @@ internal fun VideoContentSection(
         resolveVideoContentTabSwitchAnimationSpec(playerChromeProfile.tabPresentation, liquidGlassEnabled)
     }
     val componentMotionEnabled = com.android.purebilibili.core.ui.LocalComponentMotionEnabled.current
-    val commentChromeMotionEnabled = componentMotionEnabled &&
-        !com.android.purebilibili.core.ui.LocalSystemReduceMotion.current
     val tabSelectionAnimationSpec = remember(tabSwitchAnimationSpec, liquidGlassEnabled, componentMotionEnabled) {
         if (liquidGlassEnabled && !componentMotionEnabled) snap<Float>() else tween<Float>(
             durationMillis = tabSwitchAnimationSpec.durationMs,
-            easing = FastOutSlowInEasing,
+            easing = AppMotionEasing.M1Standard,
         )
     }
     // Only glass opts into shared tap/release timing. Native pagers keep their default fling.
@@ -816,8 +809,17 @@ internal fun VideoContentSection(
 
     // 评论 Tab：「简介|评论」分段 nestedScroll 跟手折叠/展开，反向滑动立即打断。
     val density = LocalDensity.current
+    // 首次测量前使用单行占位；之后背景与列表只读取同一份真实高度。
+    val commentHeaderHeightPx = remember(density, liquidGlassEnabled) {
+        mutableFloatStateOf(with(density) { 46.dp.toPx() })
+    }
+    val commentHeaderHeightProvider = remember(commentHeaderHeightPx) {
+        { commentHeaderHeightPx.floatValue }
+    }
     var tabBarMaxHeightPx by remember { mutableFloatStateOf(0f) }
-    var tabBarCollapsePx by remember(commentListState) { mutableFloatStateOf(0f) }
+    // 标签栏不再随滚动收起；滚动折叠机制整体转移到浮动评论栏：
+    // 「最热评论」标题文字不设开关、下滑必隐回顶出现，排序/搜索行由设置开关控制。
+    var commentHeaderCollapsePx by remember(commentListState) { mutableFloatStateOf(0f) }
     val commentListAtTop by remember(commentListState) {
         derivedStateOf {
             isVideoContentCommentListAtTop(
@@ -846,40 +848,43 @@ internal fun VideoContentSection(
     val tabBarScrollHideEnabled by SettingsManager
         .getVideoDetailChromeScrollHideEnabled(context)
         .collectAsStateWithLifecycle(initialValue = false)
-    val tabBarCollapseEnabled by remember(tabBarScrollHideEnabled, pagerState) {
+    val commentHeaderCollapseEnabled by remember(pagerState) {
         derivedStateOf {
             shouldKeepVideoContentTabBarCollapse(
-                settingEnabled = tabBarScrollHideEnabled,
+                settingEnabled = true,
                 selectedTabIndex = pagerState.currentPage,
             )
         }
     }
-    // 离开评论列表顶部时钳到全收；回到简介 Tab 时复位展开。
-    LaunchedEffect(commentListState, tabBarCollapseEnabled, commentListAtTop, tabBarMaxHeightPx) {
-        tabBarCollapsePx = resolveVideoContentTabBarCollapsePxWhenListLeavesTop(
-            collapsePx = tabBarCollapsePx,
-            maxCollapsePx = tabBarMaxHeightPx,
+    var commentListWasAtTop by remember(commentListState) { mutableStateOf(commentListAtTop) }
+    // 离开顶部时收净；滚动、排序或刷新使列表重新贴顶后恢复，无需额外下拉。
+    // 仍贴顶时保留当前跟手位移，避免打断正在进行的折叠手势。
+    LaunchedEffect(commentListState, commentHeaderCollapseEnabled, commentListAtTop, commentHeaderHeightPx.floatValue) {
+        commentHeaderCollapsePx = resolveVideoContentTabBarCollapsePxWhenListLeavesTop(
+            collapsePx = commentHeaderCollapsePx,
+            maxCollapsePx = commentHeaderHeightPx.floatValue,
             listAtTop = commentListAtTop,
-            enabled = tabBarCollapseEnabled,
+            enabled = commentHeaderCollapseEnabled,
+            returningToTop = commentListAtTop && !commentListWasAtTop,
         )
+        commentListWasAtTop = commentListAtTop
     }
     val tabBarCollapseConnection = remember(
         pagerState,
         commentListState,
-        tabBarCollapseEnabled,
+        commentHeaderCollapseEnabled,
         commentListAtTop,
-        tabBarMaxHeightPx,
     ) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val update = reduceVideoContentTabBarCollapseOnPreScroll(
-                    collapsePx = tabBarCollapsePx,
-                    maxCollapsePx = tabBarMaxHeightPx,
+                    collapsePx = commentHeaderCollapsePx,
+                    maxCollapsePx = commentHeaderHeightPx.floatValue,
                     availableY = available.y,
                     listAtTop = commentListAtTop,
-                    enabled = tabBarCollapseEnabled && !pagerState.isScrollInProgress,
+                    enabled = commentHeaderCollapseEnabled && !pagerState.isScrollInProgress,
                 ) ?: return Offset.Zero
-                tabBarCollapsePx = update.nextCollapsePx
+                commentHeaderCollapsePx = update.nextCollapsePx
                 return Offset(0f, update.consumedY)
             }
 
@@ -889,29 +894,37 @@ internal fun VideoContentSection(
                 source: NestedScrollSource,
             ): Offset {
                 val update = reduceVideoContentTabBarCollapseOnPostScroll(
-                    collapsePx = tabBarCollapsePx,
-                    maxCollapsePx = tabBarMaxHeightPx,
+                    collapsePx = commentHeaderCollapsePx,
+                    maxCollapsePx = commentHeaderHeightPx.floatValue,
                     availableY = available.y,
                     listAtTop = commentListAtTop,
-                    enabled = tabBarCollapseEnabled && !pagerState.isScrollInProgress,
+                    enabled = commentHeaderCollapseEnabled && !pagerState.isScrollInProgress,
                 ) ?: return Offset.Zero
-                tabBarCollapsePx = update.nextCollapsePx
+                commentHeaderCollapsePx = update.nextCollapsePx
                 return Offset(0f, update.consumedY)
             }
         }
     }
     // Read the scroll-driven collapse only in measure/draw, not while composing the pages.
-    val tabBarCollapseProgress = {
+    val commentHeaderCollapseProgress = {
         resolveVideoContentTabBarCollapseProgress(
-            collapsePx = tabBarCollapsePx,
-            maxCollapsePx = tabBarMaxHeightPx,
+            collapsePx = commentHeaderCollapsePx,
+            maxCollapsePx = commentHeaderHeightPx.floatValue,
             selectedTabIndex = pagerState.currentPage,
             listAtTop = commentListAtTop,
-            enabled = tabBarCollapseEnabled,
+            enabled = true,
         )
     }
-    val tabBarVisibleHeightPx = {
-        (tabBarMaxHeightPx - tabBarCollapsePx).coerceAtLeast(0f)
+    // 标签栏始终按完整测量高度占位，不再消费折叠位移。
+    val tabBarVisibleHeightPx = { tabBarMaxHeightPx }
+    // 排序/搜索行仅在开关开启时随折叠收起；标题文字始终按进度隐藏。
+    val commentHeaderVisibleHeightPx = {
+        val fullHeight = commentHeaderHeightPx.floatValue
+        if (tabBarScrollHideEnabled) {
+            (fullHeight - commentHeaderCollapsePx).coerceAtLeast(0f)
+        } else {
+            fullHeight
+        }
     }
     val pageContentPadding = remember(density, bottomContentPadding, immersiveVideoContentChromeEnabled, commentListState) {
         videoContentPadding(
@@ -1088,7 +1101,9 @@ internal fun VideoContentSection(
                         // Glass title and sort share the sibling overlay. Keep its space as list
                         // padding so hiding chrome cannot resize the list or move its anchors.
                         showHeader = !immersiveVideoContentChromeEnabled && !liquidGlassEnabled,
-                        floatingHeaderContentPadding = if (immersiveVideoContentChromeEnabled || liquidGlassEnabled) 46.dp else 0.dp,
+                        floatingHeaderContentPaddingPx = if (immersiveVideoContentChromeEnabled || liquidGlassEnabled) {
+                            commentHeaderHeightProvider
+                        } else null,
                         onSearchClick = { showCommentSearchSheet = true },
                     )
                 }
@@ -1110,7 +1125,7 @@ internal fun VideoContentSection(
                         val commentFraction = resolveVideoContentCommentChromeHeightFraction(
                             pagerState.currentPage + pagerState.currentPageOffsetFraction,
                         )
-                        tabBarVisibleHeightPx() + with(density) { 46.dp.toPx() } * commentFraction
+                        tabBarVisibleHeightPx() + commentHeaderHeightProvider() * commentFraction
                     }
                     .background(
                         if (isPlayerCollapsed && !liquidGlassEnabled) {
@@ -1134,18 +1149,7 @@ internal fun VideoContentSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    if (tabBarMaxHeightPx <= 0f) {
-                        // 首帧先按内容测量真实高度，再进入跟手折叠。
-                        Modifier.wrapContentHeight()
-                    } else {
-                        Modifier
-                            .videoContentHeight(tabBarVisibleHeightPx)
-                            .graphicsLayer {
-                                clip = tabBarCollapseProgress() > 0.001f
-                            }
-                    }
-                ),
+                .wrapContentHeight(),
             contentAlignment = Alignment.TopStart,
         ) {
             VideoContentTabBar(
@@ -1179,15 +1183,10 @@ internal fun VideoContentSection(
                     .onSizeChanged { size ->
                         val measured = size.height.toFloat()
                         if (measured > 0f &&
-                            (tabBarMaxHeightPx <= 0f || tabBarCollapsePx <= 0.5f)
+                            (tabBarMaxHeightPx <= 0f || commentHeaderCollapsePx <= 0.5f)
                         ) {
                             tabBarMaxHeightPx = measured
                         }
-                    }
-                    .graphicsLayer {
-                        val progress = tabBarCollapseProgress().coerceIn(0f, 1f)
-                        alpha = 1f - progress
-                        translationY = -tabBarMaxHeightPx * progress * 0.35f
                     },
                 isPlayerCollapsed = isPlayerCollapsed,
                 miuixBackdrop = videoContentMiuixBackdrop,
@@ -1205,7 +1204,19 @@ internal fun VideoContentSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .videoContentTopPadding(tabBarVisibleHeightPx)
-                    .heightIn(min = 46.dp)
+                    // 排序/搜索行由开关决定是否随折叠收起；关闭开关时整行保留，
+                    // 仅标题文字按折叠进度隐藏。
+                    .then(
+                        if (tabBarScrollHideEnabled) {
+                            Modifier
+                                .videoContentHeight(commentHeaderVisibleHeightPx)
+                                .graphicsLayer {
+                                    clip = commentHeaderCollapseProgress() > 0.001f
+                                }
+                        } else {
+                            Modifier
+                        }
+                    )
                     .graphicsLayer {
                         translationX = pagerState.getOffsetDistanceInPages(1) * size.width
                     },
@@ -1217,9 +1228,17 @@ internal fun VideoContentSection(
                     onSearchClick = { showCommentSearchSheet = true },
                     backdrop = videoContentMiuixBackdrop,
                     liquidGlassEnabled = liquidGlassEnabled,
-                    listAtTop = commentListAtTop,
-                    motionEnabled = commentChromeMotionEnabled,
                     compactTitleTypography = true,
+                    titleCollapseProgress = commentHeaderCollapseProgress,
+                    modifier = Modifier
+                        // 子项按自然高度测量、折叠容器只做高度裁剪：否则收起时
+                        // 测量高度被同步压小，形成回环后回顶也无法恢复。
+                        .wrapContentHeight(unbounded = true)
+                        .onSizeChanged { size ->
+                            if (size.height > 0 && commentHeaderHeightPx.floatValue != size.height.toFloat()) {
+                                commentHeaderHeightPx.floatValue = size.height.toFloat()
+                            }
+                        },
                 )
             }
         }
@@ -1238,7 +1257,7 @@ internal fun VideoContentSection(
                     } else {
                         commentListState.animateScrollToItem(0)
                     }
-                    tabBarCollapsePx = 0f
+                    commentHeaderCollapsePx = 0f
                 }
             },
             backdrop = videoContentMiuixBackdrop,
@@ -1434,11 +1453,12 @@ private fun VideoIntroTab(
         chunkRelatedVideosForHomeStyleGrid(visibleRelatedVideos)
     }
     val relatedVideoCardLayout = rememberRelatedVideoCardLayout()
-    LazyColumn(
+    RelatedVideoList(
+        cardLayout = relatedVideoCardLayout,
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding
-    ) {
+    ) { cardPresentation ->
         // 1. 移入的 Header 区域
         item(key = "video_intro_header", contentType = "video_intro_header") {
             VideoHeaderContent(
@@ -1541,6 +1561,7 @@ private fun VideoIntroTab(
                 RelatedVideoGridRow(
                     videos = row,
                     cardLayout = relatedVideoCardLayout,
+                    cardPresentation = cardPresentation,
                     followingMids = followingMids,
                     showUpBadge = showUpBadge,
                     onVideoClick = { video ->
@@ -1611,6 +1632,7 @@ internal fun VideoCommentTab(
     pullToRefreshEnabled: Boolean = true,
     pinnedReplyIds: Set<Long> = emptySet(),
     paginationPage: Int = 1,
+    floatingHeaderContentPaddingPx: (() -> Float)? = null,
 ) {
     val commentAppearance = rememberVideoCommentAppearance()
     val avatarPushEnabled = com.android.purebilibili.feature.video.ui.components.rememberCommentAvatarPushEnabled()
@@ -1669,8 +1691,15 @@ internal fun VideoCommentTab(
                 scrollState = listState,
             )
         }
-        val commentContentPadding = remember(contentPadding, floatingHeaderContentPadding) {
-            videoContentAdditionalTopPadding(contentPadding, floatingHeaderContentPadding)
+        val contentDensity = LocalDensity.current
+        val commentContentPadding = remember(
+            contentPadding, floatingHeaderContentPadding, floatingHeaderContentPaddingPx, contentDensity,
+        ) {
+            if (floatingHeaderContentPaddingPx != null) {
+                videoContentAdditionalTopPadding(contentPadding, floatingHeaderContentPaddingPx, contentDensity)
+            } else {
+                videoContentAdditionalTopPadding(contentPadding, floatingHeaderContentPadding)
+            }
         }
         VideoCommentRefreshContainer(
             isRefreshing = isRepliesRefreshing,

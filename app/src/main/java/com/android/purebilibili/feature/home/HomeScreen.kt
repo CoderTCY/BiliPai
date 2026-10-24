@@ -1,6 +1,7 @@
 // 文件路径: feature/home/HomeScreen.kt
 package com.android.purebilibili.feature.home
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 import com.android.purebilibili.core.ui.components.AppText
 
@@ -12,7 +13,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi //  Added
@@ -91,6 +91,7 @@ import com.android.purebilibili.feature.home.components.CategoryTabRow
 import com.android.purebilibili.feature.home.components.HomeHeader
 import com.android.purebilibili.feature.home.components.HomeRefreshIndicator
 import com.android.purebilibili.feature.home.components.Md3ScreenshotRefreshIndicator
+import com.android.purebilibili.feature.home.components.nativeMd3TopTabSelectionSpec
 import com.android.purebilibili.feature.home.components.HomeInteractionMotionBudget
 import com.android.purebilibili.feature.home.components.rememberHomeUiSkinDecoration
 import com.android.purebilibili.feature.home.components.resolveHomeInteractionMotionBudget
@@ -516,10 +517,7 @@ fun HomeScreen(
         com.android.purebilibili.core.theme.AppUiStyle.MATERIAL3 &&
         !com.android.purebilibili.core.ui.LocalAppThemeConfig.current.liquidGlassEnabled
     val homeTabSelectionAnimationSpec = remember(nativeMd3TabMotion) {
-        if (nativeMd3TabMotion) tween<Float>(
-            durationMillis = 240,
-            easing = androidx.compose.animation.core.FastOutSlowInEasing,
-        ) else null
+        if (nativeMd3TabMotion) nativeMd3TopTabSelectionSpec<Float>() else null
     }
     val heroCarouselPointerActive = remember { mutableStateOf(false) }
     val onHeroCarouselGestureActiveChange = remember(heroCarouselPointerActive) {
@@ -890,7 +888,7 @@ fun HomeScreen(
     val dissolvingVideos by viewModel.dissolvingVideos.collectAsStateWithLifecycle()
     val followingMids by viewModel.followingMids.collectAsHomeFeedState(homeFeedUpdatesAllowed)
     val showOnlineCount by SettingsManager
-        .getShowOnlineCount(context)
+        .getShowCardOnlineCount(context)
         .collectAsStateWithLifecycle(initialValue = false)
     val homeFeedCardStyle by SettingsManager
         .getHomeFeedCardStyle(context)
@@ -1773,6 +1771,9 @@ fun HomeScreen(
         gridStates[currentCategory]
     }
 
+    // 刷新会话（下拉中、请求中、回弹中）由各页面上报，顶栏滚动连接据此不反向收起。
+    var homeRefreshInteractionActive by remember { mutableStateOf(false) }
+
     val nestedScrollConnection = rememberHomeHeaderScrollConnection(
         configuration = HomeHeaderScrollConfiguration(
             collapseEnabled = isAnyHeaderCollapseEnabled,
@@ -1788,6 +1789,7 @@ fun HomeScreen(
         activeGridState = activeGridState,
         subscriptionListState = subscriptionListState,
         revealLocked = homeHeaderRevealLock,
+        refreshInteractionActive = homeRefreshInteractionActive,
         headerOffsetProvider = headerOffsetProvider,
         globalScrollOffset = globalScrollOffset,
         onHeaderOffsetChanged = { offsetPx, shouldAnimate ->
@@ -2045,6 +2047,7 @@ fun HomeScreen(
                                         end = AppSpacingTokens.Large,
                                     ),
                                     scrollToTopRequestId = subscriptionScrollToTopRequestId,
+                                    onRefreshInteractionActiveChanged = { homeRefreshInteractionActive = it },
                                     listState = subscriptionListState,
                                     gridColumns = effectiveGridColumns,
                                     pinchEnabled = !isSingleColumnMode && homeSettings.pinchToChangeGridColumnsEnabled,
@@ -2118,6 +2121,12 @@ fun HomeScreen(
                         val pullRefreshState = rememberPullToRefreshState()
                         val pullDistanceFraction = pullRefreshState.distanceFraction
                         val isPageRefreshing = isRefreshing && currentCategory == category
+                        // 覆盖下拉中、请求中、回弹/回收中三阶段；只有当前页上报，
+                        // 邻页预留组合不改变顶栏的刷新保护。
+                        SideEffect {
+                            homeRefreshInteractionActive = currentCategory == category &&
+                                (isPageRefreshing || pullDistanceFraction > 0f || pullRefreshState.isAnimating)
+                        }
                         var stablePullOffsetFraction by remember { mutableFloatStateOf(0f) }
 
                         //  下拉物理由策略区分：MD3 截图式跟随当前手指距离回收，旧 iOS 弹性保留防抖滞后。
@@ -2173,7 +2182,8 @@ fun HomeScreen(
                         //  把 GridState 提升给父级用于控制 Header?
 
                         // Overlay chrome (status + search + tabs); not for Scaffold-padded screens.
-                        val homeRefreshIndicatorTopInset = listTopPadding
+                        // 指示器 inset 跟随可见顶栏（含收起偏移与 tab 收起动画），内容间距保持不变。
+                        val homeRefreshIndicatorTopInset = embeddedPageTopPadding.value
                         AdaptivePullToRefreshBox(
                             isRefreshing = isRefreshing && currentCategory == category,
                             onRefresh = {
@@ -2953,14 +2963,14 @@ fun HomeScreen(
                 initialScale = 0.9f,
                 animationSpec = tween(
                     overlayMotionSpec.previewOverlayScaleDurationMillis,
-                    easing = androidx.compose.animation.core.FastOutSlowInEasing
+                    easing = AppMotionEasing.M1Standard
                 )
             ),
             exit = fadeOut(tween(overlayMotionSpec.previewOverlayFadeDurationMillis)) + scaleOut(
                 targetScale = 0.9f,
                 animationSpec = tween(
                     overlayMotionSpec.previewOverlayScaleDurationMillis,
-                    easing = androidx.compose.animation.core.FastOutSlowInEasing
+                    easing = AppMotionEasing.M1Standard
                 )
             ),
             modifier = Modifier.fillMaxSize().zIndex(100f) // Ensure on top

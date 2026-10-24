@@ -1,5 +1,8 @@
 package com.android.purebilibili.feature.video.ui.overlay
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
 import android.widget.Toast
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +32,7 @@ fun rememberPiliCollectionMenuSession(
 ): PiliCollectionMenuSession {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val subscriptionHaptic = rememberHapticFeedback()
     val seasonId = remember(ugcSeason) { ugcSeason?.let(::resolveCollectionSubscriptionId) ?: 0L }
     val orderSeasonId = if (isParts) 0L else seasonId
     val aid = remember(ugcSeason, bvid, cid) {
@@ -62,6 +66,7 @@ fun rememberPiliCollectionMenuSession(
                 try {
                     ActionRepository.setCollectionSubscription(seasonId = seasonId, subscribe = target)
                         .onSuccess {
+                            if (it != (remoteSubscribed ?: cachedSubscribed)) subscriptionHaptic(HapticType.LIGHT)
                             remoteSubscribed = it
                             SettingsManager.setCollectionSubscription(context, seasonId, it)
                             Toast.makeText(context, if (it) "已订阅合集" else "已取消订阅合集", Toast.LENGTH_SHORT).show()

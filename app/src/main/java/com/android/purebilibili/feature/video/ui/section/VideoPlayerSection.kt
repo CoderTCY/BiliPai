@@ -62,6 +62,7 @@ import com.android.purebilibili.feature.video.ui.components.toAnime4KDisplayScal
 import com.android.purebilibili.feature.video.ui.components.toFullscreenAspectRatio
 import com.android.purebilibili.feature.video.ui.components.toVideoAspectRatio
 import com.android.purebilibili.feature.video.ui.gesture.GestureLevelOverlayHost
+import com.android.purebilibili.feature.video.ui.gesture.SwipeToFullscreenHint
 import com.android.purebilibili.feature.video.ui.gesture.detectPlayerTapGestures
 import com.android.purebilibili.feature.video.ui.gesture.LockedTwoFingerSpeedAxis
 import com.android.purebilibili.feature.video.ui.gesture.TwoFingerSpeedGestureMode
@@ -442,7 +443,8 @@ private fun BoxScope.VideoSubtitleOverlayHost(
     controlsVisible: Boolean,
     endDrawerReservedWidthProvider: () -> Dp,
     playerViewportSize: IntSize,
-    bottomControlsHeightPx: Int
+    bottomControlsHeightPx: Int,
+    persistentBottomOverlayHeightProvider: () -> Int = { 0 },
 ) {
     val keepSubtitleOverlayMounted =
         uiState is VideoPlaybackUiState.Success &&
@@ -616,7 +618,8 @@ private fun BoxScope.VideoSubtitleOverlayHost(
                     positionLocked = positionLocked,
                     navigationInsetPx = navigationBottomInsetPx,
                     bottomControlsHeightPx = bottomControlsHeightPx,
-                    density = density.density
+                    density = density.density,
+                    persistentBottomOverlayHeightPx = persistentBottomOverlayHeightProvider(),
                 )
                 IntOffset(
                     x = 0,
@@ -1344,6 +1347,7 @@ private fun VideoPlayerSectionContent(
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     var measuredPlayerViewportSize by remember(bvid) { mutableStateOf(IntSize.Zero) }
     var measuredBottomControlsHeightPx by remember(bvid) { mutableIntStateOf(0) }
+    var persistentChapterBarHeightPx by remember(bvid) { mutableIntStateOf(0) }
     val ambientPresentation = LocalAmbientPresentation.current
     val statusBarAmbientFrame = remember(ambientPresentation) {
         derivedStateOf {
@@ -1569,6 +1573,8 @@ private fun VideoPlayerSectionContent(
     // 记录累计拖动距离
     var totalDragDistanceY by remember { mutableFloatStateOf(0f) }
     var totalDragDistanceX by remember { mutableFloatStateOf(0f) }
+    // 上滑/下滑进入全屏的拖动跟随提示进度 0..1；手势结束后由 gestureMode 复位渲染。
+    var swipeToFullscreenHintFraction by remember { mutableFloatStateOf(0f) }
     // 记录手势起点 X（用于锁定分区，避免拖动过程横向漂移导致误判）
     var dragStartX by remember { mutableFloatStateOf(-1f) }
 
@@ -1695,6 +1701,7 @@ private fun VideoPlayerSectionContent(
     val sharedTransitionScope = com.android.purebilibili.core.ui.LocalSharedTransitionScope.current
     val animatedVisibilityScope = com.android.purebilibili.core.ui.LocalAnimatedVisibilityScope.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val lockHaptic = rememberHapticFeedback()
     //  共享弹幕管理器（用于所有 seek 路径的一致同步）
     val danmakuManager = rememberDanmakuManager(bvid)
     val danmakuTapCoordinates = remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -2480,7 +2487,7 @@ private fun VideoPlayerSectionContent(
                                 }
                             } else if (completedGestureMode == VideoGestureMode.SwipeToFullscreen) {
                                 //  阈值判定：上滑超过一定距离触发全屏
-                                val swipeThreshold = 50.dp.toPx()
+                                val swipeThreshold = SwipeToFullscreenDragThresholdDp.toPx()
                                 if (
                                     shouldTriggerFullscreenBySwipe(
                                         isFullscreen = isFullscreen,
@@ -2669,7 +2676,13 @@ private fun VideoPlayerSectionContent(
 
                             when (gestureMode) {
                                 VideoGestureMode.SwipeToFullscreen -> {
-                                    // 累积 Y 轴距离已在上方处理
+                                    // 累积 Y 轴距离已在上方处理；这里驱动跟随提示进度。
+                                    swipeToFullscreenHintFraction = resolveSwipeToFullscreenHintFraction(
+                                        isFullscreen = isFullscreen,
+                                        reverseGesture = fullscreenGestureReverse,
+                                        totalDragDistanceY = totalDragDistanceY,
+                                        thresholdPx = SwipeToFullscreenDragThresholdDp.toPx()
+                                    )
                                 }
                                 VideoGestureMode.Seek -> {
                                     if (!sharedSeekSession.isSliderMoving) {
@@ -3217,6 +3230,39 @@ private fun VideoPlayerSectionContent(
             }
         }
 
+        // 退出竖屏全屏：内联 PlayerView 保留实例、不经 key 重建，退出瞬间直接重绑
+        // surface 恢复画面。注意不能用 router.rebindDirectSurfaceIfNeeded——router 的
+        // shouldBindDirectPlayerView 由其它 effect 更新，与本 effect 无顺序保证，会 no-op
+        // 导致黑屏；Anime4K 管线激活时仍走 router，避免与它的 surface 接管冲突。
+        var wasPortraitFullscreenForSurfaceRebind by remember { mutableStateOf(false) }
+        LaunchedEffect(
+            isPortraitFullscreen,
+            playerViewRef,
+            shouldBindInlinePlayerView
+        ) {
+            val shouldRebind = shouldRebindInlineSurfaceAfterPortraitFullscreenExit(
+                wasPortraitFullscreen = wasPortraitFullscreenForSurfaceRebind,
+                isPortraitFullscreen = isPortraitFullscreen,
+                shouldBindInlinePlayerView = shouldBindInlinePlayerView,
+                hasPlayerView = playerViewRef != null,
+            )
+            wasPortraitFullscreenForSurfaceRebind = isPortraitFullscreen
+            if (!shouldRebind) return@LaunchedEffect
+            playerViewRef?.let { playerView ->
+                if (shouldUseAnime4kPipeline) {
+                    videoOutputRouter.rebindDirectSurfaceIfNeeded()
+                } else {
+                    rebindPlayerSurfaceIfNeeded(
+                        playerView = playerView,
+                        player = playerState.player,
+                    )
+                }
+                Logger.d("VideoPlayerSection") {
+                    "🎬 Portrait fullscreen exit: inline surface rebound without PlayerView rebuild"
+                }
+            }
+        }
+
         // 合集/页内换片：bvid 或 Success 媒体就绪后强制重绑 surface，避免只听声音、画面黑屏。
         val successPlaybackIdentity = (uiState as? VideoPlaybackUiState.Success)?.let { success ->
             "${success.info.bvid}_${success.info.cid}_${success.playUrl.hashCode()}"
@@ -3651,6 +3697,13 @@ private fun VideoPlayerSectionContent(
             autoPlayEnabled = autoPlayOnOpenEnabled,
             hasManualStartPlaybackIntent = hasManualStartPlaybackIntent
         )
+        // 只保留当前输出面的真实出画状态；历史播放记录不能证明新视图已经出画。
+        var hasCurrentOutputFrame by remember(currentPlaybackIdentity, playerState.player) {
+            mutableStateOf(false)
+        }
+        var outputHandoffFrame by remember(currentPlaybackIdentity, playerState.player) {
+            mutableStateOf<ImageBitmap?>(null)
+        }
         // 勿把 currentPosition 放进 remember key：进度推进会反复重建 bootstrap，打乱揭开状态机。
         val coverBootstrapState = remember(
             currentPlaybackIdentity,
@@ -3661,6 +3714,7 @@ private fun VideoPlayerSectionContent(
             anime4kFrameVisible,
             keepCoverForManualStart,
             preserveCurrentFrameOnFullscreenChange,
+            hasCurrentOutputFrame,
         ) {
             resolveVideoPlayerCoverBootstrapState(
                 forceCoverDuringReturnAnimation = forceCoverDuringReturnAnimation,
@@ -3670,6 +3724,7 @@ private fun VideoPlayerSectionContent(
                 hasPersistedRenderedFirstFrame = persistedRenderedFirstFrame &&
                     (!shouldUseAnime4kPipeline || anime4kFrameVisible),
                 preserveCurrentFrameOnFullscreenChange = preserveCurrentFrameOnFullscreenChange,
+                hasCurrentOutputFrame = hasCurrentOutputFrame,
             )
         }
         var isFirstFrameRendered by remember(currentPlaybackIdentity, playerState.player) {
@@ -3708,7 +3763,8 @@ private fun VideoPlayerSectionContent(
         }
 
         // 1. PlayerView (底层) - key 触发 graphicsLayer 强制更新
-        //  [修复] 添加 isPortraitFullscreen 到 key，确保从全屏返回时重建 PlayerView 并重新绑定 Surface (解决黑屏问题)
+        //  [变更] isPortraitFullscreen 已从 key 移除：退出竖屏全屏保留 PlayerView 实例，
+        //  由退出瞬间的 LaunchedEffect 直接重绑 surface 恢复画面（见下方重绑 effect）。
         // Anime4K 只切换输出 Surface，不能作为 key 重建 PlayerView，否则会触发播放器恢复路径并丢失进度。
         // HDR/Dolby 必须 SurfaceView：升级到 125/126 后重建 PlayerView 才能把色彩元数据送到屏幕。
         val currentQualityId =
@@ -3750,7 +3806,9 @@ private fun VideoPlayerSectionContent(
         val surfaceCanCrossfade = canSurfaceParticipateInAlphaCrossfade(
             usesTextureSurface = useTextureSurface,
         )
-        key(isFlippedHorizontal, isFlippedVertical, isPortraitFullscreen, useTextureSurface) {
+        // 同一宿主内的方向切换不改变 PlayerView 身份；输出恢复由 surface rebind 处理。
+        // HDR/色彩元数据与纹理翻转维度仍触发重建。
+        key(isFlippedHorizontal, isFlippedVertical, useTextureSurface) {
             val viewportAspectRatio = currentAspectRatio
             val playerVideoSize = playerState.player.videoSize
             BoxWithConstraints(
@@ -3832,6 +3890,7 @@ private fun VideoPlayerSectionContent(
                 // Keep the viewport and cover mounted while the persisted surface choice loads.
                 if (isPlayerSurfaceReady) AndroidView(
                     factory = { ctx ->
+                        hasCurrentOutputFrame = false
                         val basePlayerView = if (useTextureSurface) {
                             LayoutInflater.from(ctx)
                                 .inflate(com.android.purebilibili.R.layout.view_player_texture, null, false) as PlayerView
@@ -3900,6 +3959,32 @@ private fun VideoPlayerSectionContent(
                             View.INVISIBLE
                         }
                     },
+                    // 移动到横屏/内联宿主时保留同一 PlayerView 与播放绑定。
+                    // SDR 在重挂载前保留限尺寸的交接帧，直到实际出画后的绘制边界再撤掉。
+                    // 不清空播放绑定；HDR 不进行纹理截图或输出面降级。
+                    onReset = { view ->
+                        cancelPlayerViewViewportRefresh(view)
+                        val texture = view.videoSurfaceView as? TextureView
+                        if (hasCurrentOutputFrame && texture?.isAvailable == true &&
+                            texture.width > 0 && texture.height > 0
+                        ) {
+                            val ratio = minOf(1f, 1280f / maxOf(texture.width, texture.height))
+                            outputHandoffFrame = try {
+                                texture.getBitmap(
+                                    (texture.width * ratio).roundToInt().coerceAtLeast(1),
+                                    (texture.height * ratio).roundToInt().coerceAtLeast(1),
+                                )?.asImageBitmap()
+                            } catch (_: IllegalStateException) {
+                                null
+                            }
+                        }
+                        hasCurrentOutputFrame = false
+                    },
+                    onRelease = { view ->
+                        cancelPlayerViewViewportRefresh(view)
+                        view.player = null
+                        if (playerViewRef === view) playerViewRef = null
+                    },
                     modifier = with(density) {
                         val sizeModifier = if (fillMaxViewport) {
                             Modifier.fillMaxSize()
@@ -3919,6 +4004,27 @@ private fun VideoPlayerSectionContent(
                             }
                     }
                 )
+
+                outputHandoffFrame?.let { frame ->
+                    androidx.compose.foundation.Image(
+                        bitmap = frame,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillBounds,
+                        modifier = with(density) {
+                            Modifier
+                                .requiredSize(
+                                    width = viewportLayout.width.toDp(),
+                                    height = viewportLayout.height.toDp(),
+                                )
+                                .graphicsLayer {
+                                    scaleX = if (isFlippedHorizontal) -scale else scale
+                                    scaleY = if (isFlippedVertical) -scale else scale
+                                    translationX = panX
+                                    translationY = panY
+                                }
+                        },
+                    )
+                }
 
                 if (isPlayerSurfaceReady && shouldUseAnime4kPipeline) {
                     AndroidView(
@@ -3987,6 +4093,7 @@ private fun VideoPlayerSectionContent(
 
         LaunchedEffect(anime4kSurfaceReady, anime4kDisplayedFirstFrame) {
             if (anime4kSurfaceReady && anime4kDisplayedFirstFrame) {
+                hasCurrentOutputFrame = true
                 isFirstFrameRendered = true
             }
         }
@@ -3996,6 +4103,8 @@ private fun VideoPlayerSectionContent(
             val listener = object : Player.Listener {
                 override fun onRenderedFirstFrame() {
                     if (!latestAnime4kPipelineRequested || latestAnime4kDisplayedFirstFrame) {
+                        // 已解绑的输出或后台事件不能提前撤掉当前宿主的交接帧。
+                        hasCurrentOutputFrame = playerViewRef?.isAttachedToWindow == true
                         isFirstFrameRendered = true
                     }
                     if (!hasRenderedFirstFrameSinceForegroundRecovery) {
@@ -4011,6 +4120,17 @@ private fun VideoPlayerSectionContent(
             }
             player.addListener(listener)
             onDispose { player.removeListener(listener) }
+        }
+
+        LaunchedEffect(hasCurrentOutputFrame, outputHandoffFrame) {
+            val frame = outputHandoffFrame ?: return@LaunchedEffect
+            if (!hasCurrentOutputFrame) return@LaunchedEffect
+            // 首帧通知发生在绘制之前，跨过绘制边界后才揭开真实视频。
+            withFrameNanos { }
+            withFrameNanos { }
+            if (hasCurrentOutputFrame && outputHandoffFrame === frame) {
+                outputHandoffFrame = null
+            }
         }
 
         // A persisted render event recovers callbacks missed while this section was absent.
@@ -4986,7 +5106,8 @@ private fun VideoPlayerSectionContent(
                 controlsVisible = showControls,
                 endDrawerReservedWidthProvider = endDrawerReservedWidthProvider,
                 playerViewportSize = measuredPlayerViewportSize,
-                bottomControlsHeightPx = measuredBottomControlsHeightPx
+                bottomControlsHeightPx = measuredBottomControlsHeightPx,
+                persistentBottomOverlayHeightProvider = { persistentChapterBarHeightPx },
             )
         }
 
@@ -5061,6 +5182,22 @@ private fun VideoPlayerSectionContent(
             compact = !isFullscreen,
             mode = gestureMode,
             percent = gesturePercent,
+        )
+
+        // 上滑/下滑进入全屏的拖动跟随反馈；手势结束(mode 复位)即隐藏。
+        val swipeToFullscreenHintFractionState = remember {
+            derivedStateOf {
+                if (gestureMode == VideoGestureMode.SwipeToFullscreen) {
+                    swipeToFullscreenHintFraction
+                } else {
+                    0f
+                }
+            }
+        }
+        SwipeToFullscreenHint(
+            visible = swipeToFullscreenHintFractionState.value > 0.01f,
+            progressProvider = { swipeToFullscreenHintFractionState.value },
+            isFullscreen = isFullscreen,
         )
 
         //  Seek 逃生口提示：拖动进度时手指进入顶部角落，松手取消进退
@@ -5618,9 +5755,13 @@ private fun VideoPlayerSectionContent(
                         onHomeClick = onHomeClick
                     ),
                     onToggleFullscreen = onToggleFullscreen,
-                    onLockToggle = { isScreenLocked = !isScreenLocked },
+                    onLockToggle = {
+                        lockHaptic(HapticType.LIGHT)
+                        isScreenLocked = !isScreenLocked
+                    },
                     // 缓冲状态
                     onBottomControlsSizeChanged = { measuredBottomControlsHeightPx = it },
+                    onPersistentChapterBarHeightChanged = { persistentChapterBarHeightPx = it },
                     onSponsorContributionMarkBoundary = onSponsorContributionMarkBoundary,
                     onSponsorContributionMarkWholeVideo = onSponsorContributionMarkWholeVideo,
                     onSponsorContributionCancel = onSponsorContributionCancel,

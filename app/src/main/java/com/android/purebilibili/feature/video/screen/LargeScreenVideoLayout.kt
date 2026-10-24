@@ -114,6 +114,8 @@ internal fun LargeScreenVideoLayout(
     videoNoteEnabled: Boolean = true,
     videoNoteDefaultCollapsed: Boolean = true,
     playerContent: (@Composable (Modifier) -> Unit)? = null,
+    externalQueueTitle: String = "播放列表",
+    externalQueueContent: (@Composable () -> Unit)? = null,
     transitionChromeAlphaProvider: () -> Float = { 1f },
 ) {
     val pageColor = AppSurfaceTokens.chromeBackground()
@@ -240,6 +242,8 @@ internal fun LargeScreenVideoLayout(
                         showUpBadge = showUpBadge,
                         showIdentityDecorations = commentMemberDecorationsEnabled,
                         onOpenBilibiliLink = onOpenBilibiliLink,
+                        externalQueueTitle = externalQueueTitle,
+                        externalQueueContent = externalQueueContent,
                         requestedTabName = null,
                         onRequestedTabConsumed = {},
                         danmakuEnabled = danmakuChrome.enabled,

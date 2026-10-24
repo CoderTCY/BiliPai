@@ -127,11 +127,12 @@ fun CommentListHeader(
 }
 
 @Composable
-private fun CommentListTitle(
+internal fun CommentListTitle(
     title: String,
     count: Int,
     liquidGlassEnabled: Boolean,
     compactTypography: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     // 紧凑字阶用于玻璃评论栏与详情页共享浮动评论栏；关闭玻璃的原生列表栏默认保持
     // MD3/Miuix 原字阶，只有明确传入 compactTypography 的调用点才跟随紧凑字阶。
@@ -140,7 +141,7 @@ private fun CommentListTitle(
     val countStyle = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium
     val titleWeight = if (compact) FontWeight.SemiBold else FontWeight.Bold
     val appearance = rememberVideoCommentAppearance()
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         AppText(
             text = title,
             style = titleStyle,

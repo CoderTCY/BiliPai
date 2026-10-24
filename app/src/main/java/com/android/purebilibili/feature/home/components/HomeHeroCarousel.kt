@@ -107,6 +107,7 @@ import com.android.purebilibili.feature.home.resolveHomeHeroCarouselItemKey
 import com.android.purebilibili.feature.home.resolveHomeHeroCarouselItemOrNull
 import com.android.purebilibili.feature.home.resolveHomeHeroCarouselLayout
 import com.android.purebilibili.feature.home.resolveHomeHeroCarouselPreviewAlpha
+import com.android.purebilibili.feature.home.homeHeroBannerEntranceSpec
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -205,10 +206,7 @@ internal fun HomeHeroCarousel(
             // 新横幅淡入：被消散移除后，下一条在原位轻柔浮现，避免硬切跳变。
             val entranceAlpha = remember(video.bvid) { androidx.compose.animation.core.Animatable(0f) }
             LaunchedEffect(video.bvid) {
-                entranceAlpha.animateTo(
-                    1f,
-                    androidx.compose.animation.core.tween(durationMillis = 260),
-                )
+                entranceAlpha.animateTo(1f, homeHeroBannerEntranceSpec())
             }
             Column(modifier = Modifier.graphicsLayer { alpha = entranceAlpha.value }) {
                 HomeHeroCarouselCard(

@@ -228,7 +228,7 @@ fun FollowButton(
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
-            AppText("已追番")
+            AppText("已追番", maxLines = 1, softWrap = false)
         }
     } else {
         AppButton(
@@ -246,7 +246,7 @@ fun FollowButton(
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
-            AppText("追番")
+            AppText("追番", maxLines = 1, softWrap = false)
         }
     }
 }

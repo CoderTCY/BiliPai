@@ -7353,11 +7353,12 @@ class VideoPlaybackViewModel(application: Application) : AndroidViewModel(applic
         targetLabel: String,
         targetCover: String,
         qualityId: Int,
-        options: com.android.purebilibili.feature.download.DownloadOptions = com.android.purebilibili.feature.download.DownloadOptions()
+        options: com.android.purebilibili.feature.download.DownloadOptions = com.android.purebilibili.feature.download.DownloadOptions(),
+        candidateOverride: com.android.purebilibili.feature.download.BatchDownloadCandidate? = null,
     ): com.android.purebilibili.feature.download.DownloadTask? {
         val qualityDesc = resolveDownloadQualityDescription(current, qualityId)
         val isCurrentTarget = targetBvid == currentBvid && targetCid == currentCid
-        val candidate = com.android.purebilibili.feature.download.resolveBatchDownloadCandidate(
+        val candidate = candidateOverride ?: com.android.purebilibili.feature.download.resolveBatchDownloadCandidate(
             info = current.info,
             targetBvid = targetBvid,
             targetCid = targetCid
@@ -7402,7 +7403,8 @@ class VideoPlaybackViewModel(application: Application) : AndroidViewModel(applic
         }
 
         return com.android.purebilibili.feature.download.DownloadTask(
-            aid = current.info.aid,
+            aid = candidate?.aid?.takeIf { it > 0L }
+                ?: current.info.aid.takeIf { targetBvid == current.info.bvid } ?: 0L,
             bvid = targetBvid,
             cid = targetCid,
             title = resolvedTitle,
@@ -7412,7 +7414,7 @@ class VideoPlaybackViewModel(application: Application) : AndroidViewModel(applic
             episodeSortIndex = candidate?.episodeSortIndex ?: 0,
             episodeCount = candidate?.episodeCount ?: 1,
             cover = targetCover.ifBlank { current.info.pic },
-            ownerName = current.info.owner.name,
+            ownerName = candidate?.ownerName?.takeIf { it.isNotBlank() } ?: current.info.owner.name,
             ownerFace = current.info.owner.face,
             duration = candidate?.durationSeconds ?: 0,
             quality = qualityId,
@@ -7489,7 +7491,8 @@ class VideoPlaybackViewModel(application: Application) : AndroidViewModel(applic
                     targetLabel = candidate.label,
                     targetCover = candidate.cover,
                     qualityId = qualityId,
-                    options = options
+                    options = options,
+                    candidateOverride = candidate,
                 )
                 if (task == null) {
                     failedCount += 1

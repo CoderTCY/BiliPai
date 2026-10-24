@@ -468,6 +468,18 @@ enum class FullscreenAspectRatio(val value: Int, val label: String, val descript
     }
 }
 
+/** 章节可视层的展示方式；隐藏时仍保留章节列表入口。 */
+enum class ChapterDisplayMode(val value: Int, val label: String, val description: String) {
+    HIDDEN(0, "彻底隐藏", "隐藏章节分段条和当前章节标题，仍可打开章节列表"),
+    WITH_CONTROLS(1, "随控制栏显示", "仅在控制栏展开时显示章节，收起后不遮挡画面字幕"),
+    PERSISTENT(2, "底部常驻", "横屏全屏收起控制栏后仍显示章节条，可能遮挡视频自带字幕");
+
+    companion object {
+        fun fromValue(value: Int): ChapterDisplayMode =
+            entries.find { it.value == value } ?: WITH_CONTROLS
+    }
+}
+
 enum class BottomProgressBehavior(
     val value: Int,
     val label: String,
@@ -1049,6 +1061,10 @@ data class AppNavigationSettings(
     val videoSharedReturnGestureTranslationEnabled: Boolean = true,
     val videoReturnContentFollowProgressEnabled: Boolean = true,
     val liquidIndicatorWobbleEnabled: Boolean = true,
+    // 编辑器保留原始配置，不能用运行时过滤后的可见项或生效策略反写用户选择。
+    val bottomBarOrder: List<String> = listOf("HOME", "DYNAMIC", "HISTORY", "LISTEN_VIDEO", "PROFILE"),
+    val bottomBarVisibleTabs: Set<String> = setOf("HOME", "DYNAMIC", "HISTORY", "LISTEN_VIDEO", "PROFILE"),
+    val savedBottomBarVisibilityMode: SettingsManager.BottomBarVisibilityMode = bottomBarVisibilityMode,
 )
 
 internal data class BottomTabMigrationResult(
@@ -4139,6 +4155,13 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
         }
     }
 
+    suspend fun setTopTabConfiguration(context: Context, order: List<String>, visible: Set<String>) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_TOP_TAB_ORDER] = order.joinToString(",")
+            prefs[KEY_TOP_TAB_VISIBLE_TABS] = visible.joinToString(",")
+        }
+    }
+
     //  [新增] --- 顶部标签可见项配置 ---
     fun getTopTabVisibleTabs(context: Context): Flow<Set<String>> = context.settingsDataStore.data.map { prefs ->
         val tabsString = prefs[KEY_TOP_TAB_VISIBLE_TABS] ?: DEFAULT_TOP_TAB_VISIBLE
@@ -6773,6 +6796,42 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
     }
     
     // --- 小窗模式设置 ---
+    internal fun mapPlaybackPreferencesSettings(preferences: Preferences): PlaybackPreferencesSettings =
+        PlaybackPreferencesSettings(
+            miniPlayerMode = MiniPlayerMode.fromValue(preferences[KEY_MINI_PLAYER_MODE] ?: MiniPlayerMode.OFF.value),
+            stopPlaybackOnExit = preferences[KEY_STOP_PLAYBACK_ON_EXIT] ?: false,
+            backgroundPlaybackEnabled = preferences[KEY_BACKGROUND_PLAYBACK_ENABLED] ?: true,
+            audioFocusEnabled = preferences[KEY_AUDIO_FOCUS_ENABLED] ?: true,
+            audioModeAutoPipEnabled = preferences[KEY_AUDIO_MODE_AUTO_PIP_ENABLED] ?: false,
+            audioNowPlayingBarEnabled = preferences[KEY_AUDIO_NOW_PLAYING_BAR_ENABLED] ?: true,
+            audioNowPlayingBarImmersiveEnabled = preferences[KEY_AUDIO_NOW_PLAYING_BAR_IMMERSIVE_ENABLED] ?: true,
+            audioNowPlayingBarOpensAudioMode = preferences[KEY_AUDIO_NOW_PLAYING_BAR_OPENS_AUDIO_MODE] ?: false,
+            musicLyricsUiStyle = MusicLyricsUiStyle.fromValue(preferences[KEY_MUSIC_LYRICS_UI_STYLE] ?: MusicLyricsUiStyle.CLASSIC.value),
+            loudnessNormalizationEnabled = preferences[KEY_LOUDNESS_NORMALIZATION_ENABLED] ?: false,
+            audioSpectrumEnabled = preferences[KEY_AUDIO_SPECTRUM_ENABLED] ?: false,
+            startupAutoPlayEnabled = preferences[KEY_STARTUP_AUTO_PLAY_ENABLED] ?: false,
+            wifiQuality = preferences[KEY_WIFI_QUALITY] ?: 80,
+            mobileQuality = preferences[KEY_MOBILE_QUALITY] ?: 64,
+            autoHighestQualityEnabled = preferences[KEY_AUTO_HIGHEST_QUALITY] ?: false,
+            directedTrafficEnabled = preferences[KEY_BILI_DIRECTED_TRAFFIC] ?: false,
+            videoCodecPreference = preferences[KEY_VIDEO_CODEC] ?: "hev1",
+            videoSecondCodecPreference = preferences[KEY_VIDEO_SECOND_CODEC] ?: "avc1",
+            dataSaverMode = DataSaverMode.fromValue(preferences[KEY_DATA_SAVER_MODE] ?: DataSaverMode.MOBILE_ONLY.value),
+            defaultAudioQuality = preferences[com.android.purebilibili.core.store.player.defaultAudioQualityPreferenceKey] ?: com.android.purebilibili.core.store.player.DEFAULT_AUDIO_QUALITY_FOLLOW_LAST,
+        )
+
+    internal fun getPlaybackPreferencesSettings(context: Context): Flow<PlaybackPreferencesSettings> =
+        context.settingsDataStore.data
+            .map(::mapPlaybackPreferencesSettings)
+            .distinctUntilChanged()
+            .onEach { settings ->
+                // 保留独立开关读取路径的缓存同步行为，供播放服务同步查询。
+                context.getSharedPreferences("mini_player", Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("audio_now_playing_bar_enabled", settings.audioNowPlayingBarEnabled)
+                    .apply()
+            }
+
     fun getMiniPlayerMode(context: Context): Flow<MiniPlayerMode> = context.settingsDataStore.data
         .map { preferences -> 
             MiniPlayerMode.fromValue(preferences[KEY_MINI_PLAYER_MODE] ?: MiniPlayerMode.OFF.value)
@@ -7295,6 +7354,13 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
             prefs[KEY_BOTTOM_BAR_ORDER] = order.joinToString(",")
         }
     }
+
+    suspend fun setBottomBarConfiguration(context: Context, order: List<String>, visible: Set<String>) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_BOTTOM_BAR_ORDER] = order.joinToString(",")
+            prefs[KEY_BOTTOM_BAR_VISIBLE_TABS] = visible.joinToString(",")
+        }
+    }
     
     //  [新增] --- 底栏可见项配置 ---
     // 默认可见: HOME,DYNAMIC,HISTORY,PROFILE
@@ -7406,6 +7472,7 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
     private val KEY_SHOW_FULLSCREEN_BATTERY_LEVEL = booleanPreferencesKey("show_fullscreen_battery_level")
     private val KEY_SHOW_FULLSCREEN_TIME = booleanPreferencesKey("show_fullscreen_time")
     private val KEY_SHOW_FULLSCREEN_ACTION_ITEMS = booleanPreferencesKey("show_fullscreen_action_items")
+    private val KEY_SHOW_CARD_ONLINE_COUNT = booleanPreferencesKey("show_card_online_count")
     private val KEY_SHOW_ONLINE_COUNT = booleanPreferencesKey("show_online_count")
     private val KEY_SHOW_VIDEO_DETAIL_COMMENT_COUNT =
         booleanPreferencesKey("show_video_detail_comment_count")
@@ -7424,6 +7491,7 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
     private val KEY_QUALITY_SWITCH_FAILURE_DIALOG_SHOWN =
         booleanPreferencesKey("quality_switch_failure_dialog_shown")
     private val KEY_SUBTITLE_AUTO_PREFERENCE = intPreferencesKey("subtitle_auto_preference")
+    private val KEY_CHAPTER_DISPLAY_MODE = intPreferencesKey("chapter_display_mode")
     private val KEY_BOTTOM_PROGRESS_BEHAVIOR = intPreferencesKey("bottom_progress_behavior")
     private val KEY_PROGRESS_PEAK_DANMAKU_ENABLED =
         booleanPreferencesKey("progress_peak_danmaku_enabled")
@@ -7436,8 +7504,6 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
     private val FULLSCREEN_SWIPE_SEEK_OPTIONS = listOf(10, 15, 20, 30)
     private val SWIPE_SEEK_RELATIVE_PERCENT_OPTIONS = listOf(25, 50, 90, 100)
     const val DEFAULT_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT = 3
-    private const val COMMENT_PREVIEW_CACHE_PREFS = "comment_preview_cache"
-    private const val CACHE_KEY_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT = "comment_collapsed_reply_preview_limit"
 
     fun normalizeCommentCollapsedReplyPreviewLimit(value: Int): Int = value.coerceIn(1, 10)
 
@@ -7827,6 +7893,16 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
         }
     }
 
+    // Legacy value seeds card visibility until either independent switch is edited.
+    fun getShowCardOnlineCount(context: Context): Flow<Boolean> = context.settingsDataStore.data
+        .map { preferences -> preferences[KEY_SHOW_CARD_ONLINE_COUNT] ?: preferences[KEY_SHOW_ONLINE_COUNT] ?: false }
+
+    suspend fun setShowCardOnlineCount(context: Context, enabled: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[KEY_SHOW_CARD_ONLINE_COUNT] = enabled
+        }
+    }
+
     fun getShowOnlineCount(context: Context): Flow<Boolean> = context.settingsDataStore.data
         .map { preferences -> preferences[KEY_SHOW_ONLINE_COUNT] ?: false }
 
@@ -7841,6 +7917,9 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
 
     suspend fun setShowOnlineCount(context: Context, enabled: Boolean) {
         context.settingsDataStore.edit { preferences ->
+            if (preferences[KEY_SHOW_CARD_ONLINE_COUNT] == null) {
+                preferences[KEY_SHOW_CARD_ONLINE_COUNT] = preferences[KEY_SHOW_ONLINE_COUNT] ?: false
+            }
             preferences[KEY_SHOW_ONLINE_COUNT] = enabled
         }
         context.getSharedPreferences("video_overlay_cache", Context.MODE_PRIVATE)
@@ -7876,20 +7955,6 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
         context.settingsDataStore.edit { preferences ->
             preferences[KEY_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT] = normalized
         }
-        context.getSharedPreferences(COMMENT_PREVIEW_CACHE_PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(CACHE_KEY_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT, normalized)
-            .apply()
-    }
-
-    fun getCommentCollapsedReplyPreviewLimitSync(context: Context): Int {
-        return normalizeCommentCollapsedReplyPreviewLimit(
-            context.getSharedPreferences(COMMENT_PREVIEW_CACHE_PREFS, Context.MODE_PRIVATE)
-                .getInt(
-                    CACHE_KEY_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT,
-                    DEFAULT_COMMENT_COLLAPSED_REPLY_PREVIEW_LIMIT
-                )
-        )
     }
 
     fun getPlayerDiagnosticLoggingEnabled(context: Context): Flow<Boolean> = context.settingsDataStore.data
@@ -7976,6 +8041,19 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
     suspend fun setSubtitleAutoPreference(context: Context, preference: SubtitleAutoPreference) {
         context.settingsDataStore.edit { preferences ->
             preferences[KEY_SUBTITLE_AUTO_PREFERENCE] = preference.ordinal
+        }
+    }
+
+    fun getChapterDisplayMode(context: Context): Flow<ChapterDisplayMode> =
+        context.settingsDataStore.data.map { preferences ->
+            ChapterDisplayMode.fromValue(
+                preferences[KEY_CHAPTER_DISPLAY_MODE] ?: ChapterDisplayMode.WITH_CONTROLS.value
+            )
+        }
+
+    suspend fun setChapterDisplayMode(context: Context, mode: ChapterDisplayMode) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[KEY_CHAPTER_DISPLAY_MODE] = mode.value
         }
     }
 
@@ -8103,17 +8181,14 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
         val savedVisibility = BottomBarVisibilityMode.fromValue(
             preferences[KEY_BOTTOM_BAR_VISIBILITY_MODE] ?: BottomBarVisibilityMode.ALWAYS_VISIBLE.value
         )
-        // Compact navigation replaces scroll hiding only for floating bottom bars.
-        // The saved preference remains intact for switching this feature off.
-        val effectiveVisibility = if (
-            (preferences[KEY_BOTTOM_BAR_SCROLL_COMPACT_ENABLED] ?: true) &&
-            (preferences[KEY_BOTTOM_BAR_FLOATING] ?: true) &&
-            savedVisibility == BottomBarVisibilityMode.SCROLL_HIDE
-        ) BottomBarVisibilityMode.ALWAYS_VISIBLE else savedVisibility
+        // 用户选择的整栏显隐策略优先；Dock 收缩不能将下滑隐藏改成始终显示。
         return AppNavigationSettings(
             liquidIndicatorWobbleEnabled =
                 preferences[com.android.purebilibili.core.store.navigation.liquidIndicatorWobblePreferencesKey] ?: true,
-            bottomBarVisibilityMode = effectiveVisibility,
+            bottomBarVisibilityMode = savedVisibility,
+            savedBottomBarVisibilityMode = savedVisibility,
+            bottomBarOrder = order,
+            bottomBarVisibleTabs = visible.toSet(),
             orderedVisibleTabIds = resolveOrderedVisibleBottomTabs(order, visible),
             bottomBarItemColors = parseBottomBarItemColors(preferences[KEY_BOTTOM_BAR_ITEM_COLORS] ?: ""),
             bottomBarItemLabels = parseBottomBarItemLabels(
@@ -8649,6 +8724,7 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
             IntShareablePreferenceDefinition(KEY_FULLSCREEN_MODE, SettingsShareSection.PLAYBACK),
             IntShareablePreferenceDefinition(KEY_FULLSCREEN_ASPECT_RATIO, SettingsShareSection.PLAYBACK),
             IntShareablePreferenceDefinition(KEY_SUBTITLE_AUTO_PREFERENCE, SettingsShareSection.PLAYBACK),
+            IntShareablePreferenceDefinition(KEY_CHAPTER_DISPLAY_MODE, SettingsShareSection.PLAYBACK),
             IntShareablePreferenceDefinition(KEY_BOTTOM_PROGRESS_BEHAVIOR, SettingsShareSection.PLAYBACK),
             BooleanShareablePreferenceDefinition(
                 KEY_PROGRESS_PEAK_DANMAKU_ENABLED,
@@ -8658,6 +8734,7 @@ private val KEY_APP_FONT_WEIGHT = intPreferencesKey("app_font_weight")
             BooleanShareablePreferenceDefinition(KEY_HIDE_VIDEO_PAGE_STATUS_BAR, SettingsShareSection.PLAYBACK),
             IntShareablePreferenceDefinition(KEY_TABLET_COMMENT_PANEL_WIDTH_PRESET, SettingsShareSection.PLAYBACK),
             IntShareablePreferenceDefinition(KEY_TABLET_SECONDARY_DEFAULT_TAB, SettingsShareSection.PLAYBACK),
+            BooleanShareablePreferenceDefinition(KEY_SHOW_CARD_ONLINE_COUNT, SettingsShareSection.APPEARANCE),
             BooleanShareablePreferenceDefinition(KEY_SHOW_ONLINE_COUNT, SettingsShareSection.PLAYBACK),
             BooleanShareablePreferenceDefinition(
                 KEY_SHOW_VIDEO_DETAIL_COMMENT_COUNT,

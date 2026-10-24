@@ -1,6 +1,5 @@
 package com.android.purebilibili.core.ui.skeleton
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -21,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.components.AppLazyColumn as LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import com.android.purebilibili.core.ui.components.AppLazyVerticalGrid as LazyVerticalGrid
@@ -69,7 +69,7 @@ fun rememberContentSkeletonPulseState(): State<Float> {
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = CONTENT_SKELETON_PULSE_DURATION_MILLIS,
-                easing = FastOutSlowInEasing,
+                easing = AppMotionEasing.M1Standard,
             ),
             repeatMode = RepeatMode.Reverse,
         ),

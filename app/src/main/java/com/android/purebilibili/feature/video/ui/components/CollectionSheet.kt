@@ -1,6 +1,9 @@
 // 文件路径: feature/video/ui/components/CollectionSheet.kt
 package com.android.purebilibili.feature.video.ui.components
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
 import com.android.purebilibili.core.ui.AppContentColors
 
 import androidx.compose.foundation.background
@@ -98,6 +101,7 @@ fun CollectionSheet(
     onDismiss: () -> Unit,
     onEpisodeClick: (UgcEpisode) -> Unit
 ) {
+    val selectionHaptic = rememberHapticFeedback()
     val sheetMaxHeight = episodeSheetMaxHeight()
     val context = LocalContext.current
     val clearIcon = rememberAppClearIcon()
@@ -145,11 +149,12 @@ fun CollectionSheet(
         currentCid = currentCid
     )
 
-    // 打开或切换分区时自动滚动到当前集
+    // 打开或切换分区时自动滚动定位到当前集：先与面板展开动画并行动身，
+    // 再以动画滚动收尾，避免瞬时跳转让面板“先落位又闪跳”。
     LaunchedEffect(selectedSectionIndex, currentIndex) {
         if (currentIndex > 0) {
             kotlinx.coroutines.delay(100)
-            listState.scrollToItem(currentIndex)
+            listState.animateScrollToItem(currentIndex)
         }
     }
 
@@ -371,11 +376,15 @@ fun CollectionSheet(
                         isCurrentEpisode = isCurrentEpisode,
                         onClick = {
                             if (!isCurrentEpisode) {
+                                selectionHaptic(HapticType.LIGHT)
                                 onEpisodeClick(episode)
                             }
                         },
                         onPartClick = { part ->
                             // 分 P 直达：沿用当前集元信息，仅替换目标 cid
+                            if (episode.bvid != currentBvid || part.cid != currentCid) {
+                                selectionHaptic(HapticType.LIGHT)
+                            }
                             onEpisodeClick(episode.copy(cid = part.cid))
                         }
                     )

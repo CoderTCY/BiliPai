@@ -53,3 +53,18 @@ internal fun videoContentAdditionalTopPadding(
     override fun calculateTopPadding(): Dp = contentPadding.calculateTopPadding() + extraTop
     override fun calculateBottomPadding(): Dp = contentPadding.calculateBottomPadding()
 }
+
+/** 实测高度仅在列表测量时读取，不把尺寸回写到页面组合阶段。 */
+internal fun videoContentAdditionalTopPadding(
+    contentPadding: PaddingValues,
+    extraTopPx: () -> Float,
+    density: Density,
+): PaddingValues = object : PaddingValues {
+    override fun calculateLeftPadding(layoutDirection: LayoutDirection): Dp =
+        contentPadding.calculateLeftPadding(layoutDirection)
+    override fun calculateRightPadding(layoutDirection: LayoutDirection): Dp =
+        contentPadding.calculateRightPadding(layoutDirection)
+    override fun calculateTopPadding(): Dp = contentPadding.calculateTopPadding() +
+        with(density) { extraTopPx().coerceAtLeast(0f).toDp() }
+    override fun calculateBottomPadding(): Dp = contentPadding.calculateBottomPadding()
+}

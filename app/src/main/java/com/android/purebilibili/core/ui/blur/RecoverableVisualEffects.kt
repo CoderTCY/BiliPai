@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -12,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.android.purebilibili.core.lifecycle.BackgroundManager
+import com.android.purebilibili.core.ui.AdaptiveScaffoldHazeHandle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import java.util.Collections
@@ -28,6 +30,25 @@ private val recoverableBlurGates: MutableMap<HazeState, MutableState<Boolean>> =
 fun recoverableBlurEnabled(state: HazeState): Boolean {
     val gate = recoverableBlurGates[state] ?: return true
     return gate.value
+}
+
+/** 供 design-system 共享脚手架读取的响应式门控；未注册的 state 视为始终允许。 */
+@Composable
+fun recoverableBlurEnabledState(state: HazeState): State<Boolean> {
+    val gate = recoverableBlurGates[state]
+    return gate ?: remember(state) { mutableStateOf(true) }
+}
+
+/**
+ * 共享脚手架顶栏模糊的 app 端句柄工厂：state 带后台门控与回前台重建策略，
+ * 用户关闭「顶部模糊」时不创建（design-system 侧保持原生容器色）。
+ */
+@Composable
+fun rememberAppScaffoldHazeHandle(userEnabled: Boolean): AdaptiveScaffoldHazeHandle? {
+    if (!userEnabled) return null
+    val state = rememberRecoverableHazeState(userEnabled = userEnabled, initialBlurEnabled = true)
+    val blurEnabled = recoverableBlurEnabledState(state)
+    return remember(state) { AdaptiveScaffoldHazeHandle(state, blurEnabled) }
 }
 
 fun Modifier.hazeSourceCompat(state: HazeState): Modifier {

@@ -340,6 +340,7 @@ object AnalyticsHelper {
         author: String? = null,
         duration: Long? = null
     ) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event("video_play")
         if (!isEnabled) return
         try {
             logAnalyticsEvent("video_play") {
@@ -409,6 +410,7 @@ object AnalyticsHelper {
      * 🔒 隐私保护：不记录搜索关键词，仅记录搜索行为
      */
     fun logSearch(query: String) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event("search")
         if (!isEnabled) return
         try {
             logAnalyticsEvent(FirebaseAnalytics.Event.SEARCH) {
@@ -540,6 +542,7 @@ object AnalyticsHelper {
      * 记录应用打开
      */
     fun logAppOpen() {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event("app_open")
         if (!isEnabled) return
         try {
             logAnalyticsEvent(FirebaseAnalytics.Event.APP_OPEN)
@@ -554,6 +557,7 @@ object AnalyticsHelper {
      * 记录登录事件
      */
     fun logLogin(method: String = "qrcode") {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event("login")
         if (!isEnabled) return
         try {
             logAnalyticsEvent(FirebaseAnalytics.Event.LOGIN) {
@@ -570,6 +574,7 @@ object AnalyticsHelper {
      * 记录登出事件
      */
     fun logLogout() {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event("logout")
         if (!isEnabled) return
         try {
             logAnalyticsEvent("logout")
@@ -619,6 +624,7 @@ object AnalyticsHelper {
      * 记录设置变更 (用于了解用户偏好)
      */
     fun logSettingChange(settingName: String, value: String) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event("setting_change")
         if (!isEnabled) return
         if (shouldDropByRateLimit("setting_change", "$settingName:$value", minIntervalMs = 700L)) return
         try {
@@ -676,6 +682,7 @@ object AnalyticsHelper {
      * 记录视频播放错误 (Analytics 层面，用于统计)
      */
     fun logVideoError(errorType: String, stage: String, errorCode: Int? = null) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event("video_error")
         if (!isEnabled) return
         if (shouldDropByRateLimit("video_error", "$stage:$errorType:$errorCode", 10_000L)) return
         try {
@@ -694,6 +701,7 @@ object AnalyticsHelper {
      * 记录直播播放错误
      */
     fun logLiveError(roomId: Long, errorType: String) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event("live_error")
         if (!isEnabled) return
         try {
             logAnalyticsEvent("live_error") {

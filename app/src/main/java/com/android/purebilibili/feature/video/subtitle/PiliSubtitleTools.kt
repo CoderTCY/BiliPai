@@ -334,6 +334,7 @@ fun PiliExternalSubtitleOverlay(
     bottomControlsHeightPx: Int,
     modifier: Modifier = Modifier,
     isPortrait: Boolean = false,
+    persistentBottomOverlayHeightProvider: () -> Int = { 0 },
 ) {
     val session = tools.session
     val track = session.importedTracks.firstOrNull { it.key == session.selectedTrackKey }
@@ -366,11 +367,12 @@ fun PiliExternalSubtitleOverlay(
         val density = LocalDensity.current
         val heightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
         val navigationInsetPx = WindowInsets.navigationBars.getBottom(density)
-        val bottomOffsetPx = resolveSubtitleBottomOffsetPx(
-            isFullscreen, controlsVisible, tools.controls.positionLocked,
-            navigationInsetPx, bottomControlsHeightPx, density.density,
-        )
         val spatialModifier = Modifier.offset {
+            val bottomOffsetPx = resolveSubtitleBottomOffsetPx(
+                isFullscreen, controlsVisible, tools.controls.positionLocked,
+                navigationInsetPx, bottomControlsHeightPx, density.density,
+                persistentBottomOverlayHeightPx = persistentBottomOverlayHeightProvider(),
+            )
             IntOffset(0, (heightPx * verticalOffset).roundToInt() - bottomOffsetPx)
         }.padding(horizontal = tools.appearance.horizontalPadding.dp)
             .padding(bottom = tools.appearance.bottomPadding.dp)

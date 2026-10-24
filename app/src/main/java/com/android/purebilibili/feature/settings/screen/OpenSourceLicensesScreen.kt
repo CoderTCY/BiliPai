@@ -102,6 +102,18 @@ val openSourceLibraries = listOf(
         description = "音视频播放器、HLS/DASH、会话与数据源"
     ),
     OpenSourceLibrary(
+        name = "AndroidX Paging",
+        license = "Apache 2.0",
+        url = "https://github.com/androidx/androidx",
+        description = "列表分页、加载状态与失败重试"
+    ),
+    OpenSourceLibrary(
+        name = "Protocol Buffers Lite",
+        license = "BSD-3-Clause",
+        url = "https://github.com/protocolbuffers/protobuf",
+        description = "网络消息字段编解码"
+    ),
+    OpenSourceLibrary(
         name = "AndroidX Room",
         license = "Apache 2.0",
         url = "https://github.com/androidx/androidx",

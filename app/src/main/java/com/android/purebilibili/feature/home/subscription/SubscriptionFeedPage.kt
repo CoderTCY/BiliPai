@@ -1,5 +1,6 @@
 package com.android.purebilibili.feature.home.subscription
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 
 import androidx.activity.compose.BackHandler
@@ -12,9 +13,9 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.OverlayClip
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -27,7 +28,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.text.selection.SelectionContainer
+import com.android.purebilibili.core.ui.common.AppSelectionContainer as SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -84,11 +85,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
+import androidx.compose.runtime.SideEffect
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
@@ -204,6 +207,8 @@ fun SubscriptionFeedPage(
     onArticleOpenChanged: (Boolean) -> Unit = {},
     onArticleScrollInProgressChanged: (Boolean) -> Unit = {},
     onOpenPluginSettings: () -> Unit = {},
+    /** 下拉中、请求中、回弹中任一阶段为 true，供首页顶栏在刷新会话期间保持展开。 */
+    onRefreshInteractionActiveChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -225,6 +230,13 @@ fun SubscriptionFeedPage(
 
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    // 提升到文章分支之外：文章打开导致刷新容器离场时也能把会话结束上报给顶栏。
+    val pullRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    SideEffect {
+        onRefreshInteractionActiveChanged(
+            loading || pullRefreshState.distanceFraction > 0f || pullRefreshState.isAnimating
+        )
+    }
     val transitionState = remember { SeekableTransitionState<ParsedFeedItem?>(null) }
     val isArticleOpen = opened != null || transitionState.currentState != null || transitionState.targetState != null
 
@@ -257,25 +269,23 @@ fun SubscriptionFeedPage(
                     if (lastFraction > 0.001f) {
                         val startFraction = lastFraction
                         val durationMs = (startFraction * 200).toInt().coerceIn(50, 180)
-                        runCatching {
-                            val startTime = withFrameMillis { it }
-                            while (true) {
-                                val currentTime = withFrameMillis { it }
-                                val elapsed = currentTime - startTime
-                                val p = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
-                                val eased = 1f - FastOutSlowInEasing.transform(p)
-                                transitionState.seekTo(
-                                    fraction = startFraction * eased,
-                                    targetState = null
-                                )
-                                if (p >= 1f) break
-                            }
+                        // Rewind the same transition so cancellation cannot start a second
+                        // page movement. Conflate frames while the suspending seek catches up.
+                        channelFlow {
+                            animate(
+                                initialValue = startFraction,
+                                targetValue = 0f,
+                                animationSpec = tween(durationMs, easing = AppMotionEasing.M1Standard),
+                            ) { fraction, _ -> trySend(fraction) }
+                        }.conflate().collect { fraction ->
+                            transitionState.seekTo(fraction = fraction, targetState = null)
                         }
                     }
-                    runCatching { transitionState.seekTo(fraction = 0f, targetState = null) }
-                    runCatching { transitionState.snapTo(currentOpened) }
+                    transitionState.seekTo(fraction = 0f, targetState = null)
+                    transitionState.snapTo(currentOpened)
                 }
             }
+            throw cancelled
         }
     }
     var reloadToken by remember { mutableIntStateOf(0) }
@@ -416,6 +426,7 @@ fun SubscriptionFeedPage(
                 AdaptivePullToRefreshBox(
                     isRefreshing = loading,
                     onRefresh = { reloadToken += 1 },
+                    state = pullRefreshState,
                     indicatorTopInset = contentPadding.calculateTopPadding(),
                     modifier = Modifier.fillMaxSize(),
                 ) {

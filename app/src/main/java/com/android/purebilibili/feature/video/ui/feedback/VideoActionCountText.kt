@@ -3,7 +3,6 @@ package com.android.purebilibili.feature.video.ui.feedback
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.LocalSystemReduceMotion
 import com.android.purebilibili.core.ui.components.AppText
 
@@ -92,7 +92,7 @@ internal fun VideoActionCountText(
         contentAlignment = Alignment.Center,
         transitionSpec = {
             if (targetState.animate && !reducedMotion) {
-                ((fadeIn(tween(160)) + slideInVertically(tween(180, easing = FastOutSlowInEasing)) { it / 4 })
+                ((fadeIn(tween(160)) + slideInVertically(tween(180, easing = AppMotionEasing.M1Standard)) { it / 4 })
                     togetherWith (fadeOut(tween(100)) + slideOutVertically(tween(120)) { -it / 4 }))
                     .using(null)
             } else {

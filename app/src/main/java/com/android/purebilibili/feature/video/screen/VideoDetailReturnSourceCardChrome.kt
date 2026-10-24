@@ -1015,6 +1015,9 @@ private fun LandingInfoTexts(
         return
     }
 
+    if (model.infoPresentation.ownerBeforeStats) {
+        LandingOwnerMetadata(model, Modifier.fillMaxWidth())
+    }
     if (model.infoPresentation.showStatsInInfo) {
         VideoStatRow(
             playText = model.viewText,
@@ -1022,7 +1025,9 @@ private fun LandingInfoTexts(
             modifier = Modifier.fillMaxWidth(),
         )
     }
-    LandingOwnerMetadata(model, Modifier.fillMaxWidth())
+    if (!model.infoPresentation.ownerBeforeStats) {
+        LandingOwnerMetadata(model, Modifier.fillMaxWidth())
+    }
     val footer = buildList {
         if (model.infoPresentation.showDurationInInfo && model.durationText.isNotBlank()) {
             add(model.durationText)

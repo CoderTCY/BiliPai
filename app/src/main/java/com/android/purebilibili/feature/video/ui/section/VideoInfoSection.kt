@@ -67,7 +67,7 @@ import com.android.purebilibili.data.model.response.VideoTag
 import com.android.purebilibili.core.ui.common.TextSelectionPolicy
 import com.android.purebilibili.core.ui.common.copyOnLongPress
 import com.android.purebilibili.feature.video.ui.components.VideoCardSkeleton
-import androidx.compose.foundation.text.selection.SelectionContainer
+import com.android.purebilibili.core.ui.common.AppSelectionContainer as SelectionContainer
 import androidx.compose.ui.draw.rotate
 import com.android.purebilibili.core.ui.common.copyOnClick
 import com.android.purebilibili.core.ui.OfficialVerifyBadge
@@ -1275,7 +1275,7 @@ fun UpInfoSection(
         val followButtonContent: @Composable () -> Unit = {
             var followActionModifier = Modifier
                 .heightIn(min = if (isCompact) 26.dp else 28.dp)
-                .width(if (isCompact) 56.dp else 68.dp)
+                .widthIn(min = if (isCompact) 56.dp else 68.dp)
             if (metadataSharedEnabled) {
                 with(requireNotNull(sharedTransitionScope)) {
                     followActionModifier = followActionModifier.sharedBounds(
@@ -1325,9 +1325,7 @@ fun UpInfoSection(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = if (isCompact) 8.dp else 12.dp),
+                    modifier = Modifier.padding(horizontal = if (isCompact) 8.dp else 12.dp),
                 ) {
                     Crossfade(
                         targetState = if (isFollowing) "\u5df2\u5173\u6ce8" else "\u5173\u6ce8",
@@ -1336,6 +1334,8 @@ fun UpInfoSection(
                     ) { followLabel ->
                         AppText(
                             text = followLabel,
+                            maxLines = 1,
+                            softWrap = false,
                             style = MaterialTheme.typography.labelMedium,
                             color = when (followVisualPolicy.detailTextTone) {
                                 FollowTextTone.ON_PRIMARY -> AppContentColors.onAccent()
@@ -1623,6 +1623,8 @@ private fun CreatorTeamMemberChip(
                     ) {
                         AppText(
                             text = if (isFollowing) "已关注" else "关注",
+                            maxLines = 1,
+                            softWrap = false,
                             style = MaterialTheme.typography.labelMedium,
                             color = when (followVisualPolicy.detailTextTone) {
                                 FollowTextTone.ON_PRIMARY -> AppContentColors.onAccent()

@@ -1,5 +1,8 @@
 package com.android.purebilibili.feature.video.screen
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
 import com.android.purebilibili.core.ui.AppContentColors
 import com.android.purebilibili.core.ui.resolveFilledButtonContainerColor
 import com.android.purebilibili.core.ui.resolveFilledButtonContentColor
@@ -27,7 +30,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Easing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.EnterTransition
@@ -796,9 +798,11 @@ internal fun ExternalPlaylistQueueSheetContent(
     listMaxHeight: androidx.compose.ui.unit.Dp,
     bottomSpacerHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
+    showDismissButton: Boolean = true,
     onVideoSelected: (Int, PlaylistItem) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val selectionHaptic = rememberHapticFeedback()
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = currentIndex.coerceIn(0, playlist.lastIndex.coerceAtLeast(0)),
     )
@@ -825,11 +829,13 @@ internal fun ExternalPlaylistQueueSheetContent(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium
             )
-            AppIconButton(onClick = onDismiss) {
-                AppIcon(
-                    imageVector = rememberAppChevronDownIcon(),
-                    contentDescription = "收起${title}队列",
-                )
+            if (showDismissButton) {
+                AppIconButton(onClick = onDismiss) {
+                    AppIcon(
+                        imageVector = rememberAppChevronDownIcon(),
+                        contentDescription = "收起${title}队列",
+                    )
+                }
             }
         }
 
@@ -868,7 +874,10 @@ internal fun ExternalPlaylistQueueSheetContent(
                                 Color.Transparent
                             }
                         )
-                        .clickable { onVideoSelected(index, item) }
+                        .clickable {
+                            if (!selected) selectionHaptic(HapticType.LIGHT)
+                            onVideoSelected(index, item)
+                        }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

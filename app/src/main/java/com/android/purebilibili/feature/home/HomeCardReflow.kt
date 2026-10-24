@@ -1,7 +1,6 @@
 package com.android.purebilibili.feature.home
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
@@ -13,6 +12,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInRoot
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -69,7 +69,7 @@ internal fun homeCardReflowModifier(
             motion.job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 motion.offset.snapTo(delta)
                 if (delta != Offset.Zero) {
-                    motion.offset.animateTo(Offset.Zero, tween(240, easing = LinearOutSlowInEasing))
+                    motion.offset.animateTo(Offset.Zero, tween(240, easing = AppMotionEasing.M1Decelerate))
                 }
             }
         }

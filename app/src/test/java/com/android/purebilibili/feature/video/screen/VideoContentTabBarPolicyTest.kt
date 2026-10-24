@@ -30,10 +30,6 @@ class VideoContentTabBarPolicyTest {
                 selectedTabIndex = 1,
             )
             assertTrue(keepCollapsed)
-            assertEquals(
-                !pagerScrolling,
-                shouldEnableVideoContentTabBarCollapse(true, 1, pagerScrolling),
-            )
             // Cover both mid-collapse at the list top and fully hidden while browsing.
             for (listAtTop in listOf(true, false)) {
                 assertEquals(
@@ -66,31 +62,6 @@ class VideoContentTabBarPolicyTest {
         assertTrue(isVideoContentCommentListAtTop(0, 0))
         assertFalse(isVideoContentCommentListAtTop(0, 1))
         assertFalse(isVideoContentCommentListAtTop(1, 0))
-    }
-
-    @Test
-    fun `collapse only consumes scroll on a settled comment page`() {
-        assertTrue(
-            shouldEnableVideoContentTabBarCollapse(
-                settingEnabled = true,
-                selectedTabIndex = 1,
-                isPagerScrollInProgress = false,
-            ),
-        )
-        assertFalse(
-            shouldEnableVideoContentTabBarCollapse(
-                settingEnabled = true,
-                selectedTabIndex = 0,
-                isPagerScrollInProgress = false,
-            ),
-        )
-        assertFalse(
-            shouldEnableVideoContentTabBarCollapse(
-                settingEnabled = true,
-                selectedTabIndex = 1,
-                isPagerScrollInProgress = true,
-            ),
-        )
     }
 
     @Test
@@ -232,6 +203,31 @@ class VideoContentTabBarPolicyTest {
                 maxCollapsePx = 80f,
                 listAtTop = true,
                 enabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `returning to list top restores tabs without another overscroll gesture`() {
+        assertEquals(
+            0f,
+            resolveVideoContentTabBarCollapsePxWhenListLeavesTop(
+                collapsePx = 80f,
+                maxCollapsePx = 80f,
+                listAtTop = true,
+                enabled = true,
+                returningToTop = true,
+            ),
+        )
+        // A gesture that starts at the top must retain its partial collapse.
+        assertEquals(
+            40f,
+            resolveVideoContentTabBarCollapsePxWhenListLeavesTop(
+                collapsePx = 40f,
+                maxCollapsePx = 80f,
+                listAtTop = true,
+                enabled = true,
+                returningToTop = false,
             ),
         )
     }

@@ -1,10 +1,10 @@
 package com.android.purebilibili.feature.video.ui.components
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -115,7 +115,7 @@ fun CoinSuccessAnimation(
             animatedProgress.snapTo(0f)
             animatedProgress.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(600, easing = FastOutSlowInEasing)
+                animationSpec = tween(600, easing = AppMotionEasing.M1Standard)
             )
             delay(100)
             onAnimationEnd()

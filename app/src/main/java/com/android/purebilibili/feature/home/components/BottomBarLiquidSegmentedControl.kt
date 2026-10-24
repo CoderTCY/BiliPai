@@ -1,5 +1,6 @@
 package com.android.purebilibili.feature.home.components
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 
 import android.os.Build
@@ -13,7 +14,6 @@ import com.android.purebilibili.core.ui.OpticalContrastPalette
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -594,7 +594,7 @@ fun BottomBarLiquidSegmentedControl(
         val liquidItemWidth = if (animateLabelWidths && renderedItemWidth == null && measuredLiquidItemWidth != null) {
             animateDpAsState(
                 targetValue = measuredLiquidItemWidth,
-                animationSpec = tween(180, easing = FastOutSlowInEasing),
+                animationSpec = tween(180, easing = AppMotionEasing.M1Standard),
                 label = "glassAsyncBadgeSlotWidth",
             ).value
         } else measuredLiquidItemWidth

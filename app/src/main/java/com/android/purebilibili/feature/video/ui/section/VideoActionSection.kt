@@ -1,6 +1,7 @@
 // File: feature/video/ui/section/VideoActionSection.kt
 package com.android.purebilibili.feature.video.ui.section
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 import com.android.purebilibili.core.ui.components.appElasticPress
 import com.android.purebilibili.core.ui.components.AppIcon
@@ -47,7 +48,6 @@ import com.android.purebilibili.data.model.response.ViewInfo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -472,7 +472,7 @@ private fun TripleProgressActionButton(
             // 避免图标硬切造成的闪烁感。
             Crossfade(
                 targetState = icon,
-                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                animationSpec = tween(durationMillis = 180, easing = AppMotionEasing.M1Standard),
                 label = "videoActionIcon"
             ) { targetIcon ->
                 AppIcon(
@@ -524,7 +524,7 @@ private fun TripleLikeActionButton(
         animationSpec = if (isLongPressing) {
             tween(durationMillis = progressDuration, easing = LinearEasing)
         } else {
-            tween(durationMillis = 200, easing = FastOutSlowInEasing)
+            tween(durationMillis = 200, easing = AppMotionEasing.M1Standard)
         },
         label = "tripleLikeProgress",
         finishedListener = { progress ->

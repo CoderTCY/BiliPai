@@ -45,7 +45,10 @@ data class PlayUrlData(
     @SerialName("dolby_type")
     val dolbyType: Int? = null,
     @SerialName("ai_audio")
-    val aiAudio: AiAudioInfo? = null
+    val aiAudio: AiAudioInfo? = null,
+    // 校验响应可能只有此字段，不包含播放地址；不得按普通空流逐档重试。
+    @SerialName("v_voucher")
+    val vVoucher: String? = null
 ) {
     //  PiliPala 风格：提供便捷的访问方法
     val accept_quality: List<Int> get() = acceptQuality

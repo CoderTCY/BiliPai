@@ -31,10 +31,6 @@ import com.android.purebilibili.R
 import com.android.purebilibili.core.theme.*
 import com.android.purebilibili.core.ui.blur.BlurIntensity
 import com.android.purebilibili.core.ui.blur.shouldAllowHomeChromeLiquidGlass
-import com.android.purebilibili.core.store.AppNavigationSettings
-import com.android.purebilibili.core.store.LiquidGlassAdvancedSettings
-import com.android.purebilibili.core.store.LiquidGlassReadabilityMode
-import com.android.purebilibili.core.store.home.LiquidGlassSettingsStore
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.ui.AppShapes
 import com.android.purebilibili.core.ui.AppSurfaceTokens
@@ -205,54 +201,43 @@ fun AnimationSettingsContent(
             MotionTier.Normal -> stringResource(R.string.animation_motion_tier_standard_hint)
             MotionTier.Enhanced -> stringResource(R.string.animation_motion_tier_enhanced_hint)
     }
+    val homeConfiguration = rememberSettingsHomeConfiguration()
+    val themeConfiguration = com.android.purebilibili.core.ui.LocalAppThemeConfig.current
     val isLiquidGlassAvailable = shouldAllowHomeChromeLiquidGlass(Build.VERSION.SDK_INT)
-    val liquidGlassPreviewImageUri by SettingsManager
-        .getLiquidGlassPreviewImageUri(context)
+    val liquidGlassPreviewImageUri by remember(context) { SettingsManager.getLiquidGlassPreviewImageUri(context) }
         .collectAsStateWithLifecycle(initialValue = null)
-    val liquidGlassAdvancedSettings by SettingsManager
-        .getLiquidGlassAdvancedSettings(context)
-        .collectAsStateWithLifecycle(
-            initialValue = LiquidGlassAdvancedSettings()
-        )
-    val liquidGlassReadabilityMode by LiquidGlassSettingsStore
-        .observeReadabilityMode(context)
-        .collectAsStateWithLifecycle(initialValue = LiquidGlassReadabilityMode.STABLE)
-    val uiEntranceAnimationEnabled by SettingsManager.getUiEntranceAnimationEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val globalDragFeedbackEnabled by SettingsManager.getGlobalDragFeedbackEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = true)
-    val maidLottieAnimationEnabled by SettingsManager.getMaidLottieAnimationEnabled(context)
+    val liquidGlassAdvancedSettings = homeConfiguration.liquidGlassAdvancedSettings
+    val liquidGlassReadabilityMode = homeConfiguration.liquidGlassReadabilityMode
+    val uiEntranceAnimationEnabled by remember(context) { SettingsManager.getUiEntranceAnimationEnabled(context) }
+        .collectAsStateWithLifecycle(initialValue = themeConfiguration.uiEntranceAnimationEnabled)
+    val globalDragFeedbackEnabled by remember(context) { SettingsManager.getGlobalDragFeedbackEnabled(context) }
+        .collectAsStateWithLifecycle(initialValue = themeConfiguration.globalDragFeedbackEnabled)
+    val maidLottieAnimationEnabled by remember(context) { SettingsManager.getMaidLottieAnimationEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = true)
     val skeletonBreathingEnabled = com.android.purebilibili.core.ui.skeleton.rememberSkeletonBreathingEnabled()
-    val globalTextTapCopyEnabled by SettingsManager
-        .getGlobalTextTapCopyEnabled(context)
-        .collectAsStateWithLifecycle(initialValue = false)
-    val appNavigationSettings by SettingsManager.getAppNavigationSettings(context)
-        .collectAsStateWithLifecycle(initialValue = AppNavigationSettings())
+    val globalTextTapCopyEnabled by remember(context) { SettingsManager.getGlobalTextTapCopyEnabled(context) }
+        .collectAsStateWithLifecycle(initialValue = themeConfiguration.globalTextTapCopyEnabled)
+    val appNavigationSettings = rememberSettingsNavigationConfiguration()
     val previewBottomBarItems = remember(
         appNavigationSettings.orderedVisibleTabIds,
-        state.bottomBarSearchEnabled,
-        state.bottomBarSearchLayoutMode,
+        homeConfiguration.isBottomBarSearchEnabled,
+        homeConfiguration.bottomBarSearchLayoutMode,
     ) {
         resolveBottomBarVisibleItemsForSearchMode(
             visibleItems = resolveVisibleBottomBarItems(
                 appNavigationSettings.orderedVisibleTabIds
             ),
-            bottomBarSearchEnabled = state.bottomBarSearchEnabled,
-            searchLayoutMode = state.bottomBarSearchLayoutMode,
+            bottomBarSearchEnabled = homeConfiguration.isBottomBarSearchEnabled,
+            searchLayoutMode = homeConfiguration.bottomBarSearchLayoutMode,
         )
     }
-    val videoTransitionRealtimeBlurEnabled by SettingsManager
-        .getVideoTransitionRealtimeBlurEnabled(context)
+    val videoTransitionRealtimeBlurEnabled by remember(context) { SettingsManager.getVideoTransitionRealtimeBlurEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val liveSurfaceCardTransitionEnabled by SettingsManager
-        .getLiveSurfaceCardTransitionEnabled(context)
+    val liveSurfaceCardTransitionEnabled by remember(context) { SettingsManager.getLiveSurfaceCardTransitionEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val relatedVideoTransitionEnabled by SettingsManager
-        .getRelatedVideoTransitionEnabled(context)
+    val relatedVideoTransitionEnabled by remember(context) { SettingsManager.getRelatedVideoTransitionEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val fullScreenSwipeBackEnabled by SettingsManager
-        .getFullScreenSwipeBackEnabled(context)
+    val fullScreenSwipeBackEnabled by remember(context) { SettingsManager.getFullScreenSwipeBackEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
     val effectiveEntranceSpec = rememberEffectiveEntranceMotionSpec()
     // 开关开着、但有效参数被降级为不动画 → 系统减弱动效在生效。

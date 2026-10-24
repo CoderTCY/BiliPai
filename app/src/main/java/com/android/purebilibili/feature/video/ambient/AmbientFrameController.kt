@@ -1,6 +1,7 @@
 package com.android.purebilibili.feature.video.ambient
 
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -170,8 +171,19 @@ internal class AmbientFrameController(
                         val raw = sample.copy(Bitmap.Config.ARGB_8888, false) ?: continue
                         val analyzed = withContext(Dispatchers.Default) {
                             val crop = analyzer.analyze(pixels, w, h, started)
-                            val glow = if (config.glow) Bitmap.createBitmap(analyzer.blur(pixels, w, h, crop), w, h, Bitmap.Config.ARGB_8888)
-                                else raw
+                            val glow = if (config.glow) {
+                                // API 33+ 优先 RenderEffect GPU 模糊；失败或低版本回退 CPU 内核。
+                                val gpuGlow = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    AmbientGpuBlurPolicy.glow(raw, crop)
+                                } else {
+                                    null
+                                }
+                                gpuGlow ?: Bitmap.createBitmap(
+                                    analyzer.blur(pixels, w, h, crop), w, h, Bitmap.Config.ARGB_8888
+                                )
+                            } else {
+                                raw
+                            }
                             crop to glow
                         }
                         val result = analyzed.second

@@ -38,7 +38,9 @@ internal fun VideoDetailDownloadOverlayAdapter(
 
     // 本地状态控制画质选择弹窗
     var showQualitySelection by remember { mutableStateOf(false) }
-    var showBatchDownloadDialog by remember { mutableStateOf(false) }
+    var showBatchDownloadDialog by remember(successForDownload?.info?.bvid, successForDownload?.info?.cid) {
+        mutableStateOf(false)
+    }
 
     if (showDownloadDialog && successForDownload != null) {
         val batchDownloadCandidates = remember(successForDownload.info) {
@@ -96,7 +98,10 @@ internal fun VideoDetailDownloadOverlayAdapter(
                     }
                 }
 
-                if (batchDownloadCandidates.size > 1) {
+                if (batchDownloadCandidates.size > 1 ||
+                    successForDownload.info.ugc_season?.sections.orEmpty()
+                        .any { section -> section.episodes.any { it.bvid.isNotBlank() } }
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -120,7 +125,7 @@ internal fun VideoDetailDownloadOverlayAdapter(
                                 color = AppContentColors.primaryText()
                             )
                             AppText(
-                                text = "选择多个分P或合集条目统一加入下载",
+                                text = "选择分 P、合集视频及其内部分 P，统一加入下载",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = AppContentColors.secondaryText()
                             )
@@ -255,11 +260,31 @@ internal fun VideoDetailDownloadOverlayAdapter(
     }
 
     if (showBatchDownloadDialog && successForDownload != null) {
-        val batchDownloadCandidates = remember(successForDownload.info) {
-            com.android.purebilibili.feature.download.resolveBatchDownloadCandidates(
-                successForDownload.info
-            )
+        val batchInfo = remember(
+            successForDownload.info.bvid,
+            successForDownload.info.cid,
+            successForDownload.info.ugc_season,
+            successForDownload.info.pages,
+        ) { successForDownload.info }
+        var loadedCandidates by remember(batchInfo) {
+            mutableStateOf(com.android.purebilibili.feature.download.BatchDownloadCandidateLoadResult(
+                candidates = com.android.purebilibili.feature.download.resolveBatchDownloadCandidates(batchInfo),
+            ))
         }
+        var isLoadingCandidates by remember(batchInfo) { mutableStateOf(true) }
+        var retryGeneration by remember(batchInfo) { mutableIntStateOf(0) }
+        LaunchedEffect(batchInfo, retryGeneration) {
+            isLoadingCandidates = true
+            loadedCandidates = com.android.purebilibili.feature.download.loadBatchDownloadCandidates(
+                info = batchInfo,
+                knownDetails = loadedCandidates.detailsByBvid,
+                loadDetail = { targetBvid ->
+                    com.android.purebilibili.data.repository.VideoRepository.getVideoInfoOnly(targetBvid)
+                },
+            )
+            isLoadingCandidates = false
+        }
+        val batchDownloadCandidates = loadedCandidates.candidates
         val downloadedCandidateIds = remember(downloadTasks) {
             downloadTasks.values
                 .filter { !it.isFailed && !it.isAudioOnly }
@@ -274,6 +299,12 @@ internal fun VideoDetailDownloadOverlayAdapter(
         com.android.purebilibili.feature.download.BatchDownloadDialog(
             title = successForDownload.info.title,
             candidates = batchDownloadCandidates,
+            isLoadingCandidates = isLoadingCandidates,
+            failedExpansionCount = loadedCandidates.failedBvids.size,
+            onRetryExpansion = {
+                isLoadingCandidates = true
+                retryGeneration += 1
+            },
             qualityOptions = sortedQualityOptions,
             currentQuality = highestQuality,
             downloadedIds = downloadedCandidateIds,

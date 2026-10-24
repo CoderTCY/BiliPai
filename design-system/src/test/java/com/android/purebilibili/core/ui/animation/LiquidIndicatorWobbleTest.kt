@@ -1,5 +1,11 @@
 package com.android.purebilibili.core.ui.animation
 
+import androidx.compose.runtime.BroadcastFrameClock
+import androidx.compose.ui.MotionDurationScale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -7,51 +13,24 @@ import kotlin.test.assertTrue
 
 class LiquidIndicatorWobbleTest {
     @Test
-    fun `selection acknowledgement preserves the entire drag release trajectory`() {
-        val reference = LiquidIndicatorWobble(0f)
-        val acknowledged = LiquidIndicatorWobble(0f)
-        for (wobble in listOf(reference, acknowledged)) {
-            wobble.onInteractionStarted()
-            wobble.advance(0.6f, frame, manualInteraction = true)
-            wobble.onInteractionReleased()
-        }
-        repeat(120) { index ->
-            if (index == 2 || index == 8) {
-                acknowledged.onSelectionChanged(continuous = true, preserveRelease = true)
-            }
-            val position = (0.6f + index * 0.04f).coerceAtMost(1f)
-            reference.advance(position, frame)
-            acknowledged.advance(position, frame)
-            assertEquals(reference.stretch, acknowledged.stretch)
-            assertEquals(reference.velocityWeight, acknowledged.velocityWeight)
-        }
-        assertEquals(0f, acknowledged.stretch)
+    fun `held input and intermediate tabs cannot trigger a final target recoil`() {
+        assertFalse(canStartLiquidIndicatorRecoil(2.96f, 3f, 4f, interactionActive = true))
+        assertFalse(canStartLiquidIndicatorRecoil(1f, 3f, 4f, interactionActive = false))
+        assertFalse(canStartLiquidIndicatorRecoil(2f, 3f, 4f, interactionActive = false))
+        assertFalse(canStartLiquidIndicatorRecoil(2.96f, 3f, 4f, interactionActive = false, returning = false))
+        // Released pager settling may enter recoil before reaching the exact integer position.
+        assertTrue(canStartLiquidIndicatorRecoil(2.96f, 3f, 4f, interactionActive = false))
     }
 
     @Test
-    fun `release hands velocity deformation over without a release frame cut`() {
-        for (velocity in listOf(-2f, 2f)) {
-            val wobble = LiquidIndicatorWobble(0f)
-            wobble.onInteractionStarted()
-            wobble.advance(0.5f, frame, manualInteraction = true)
-            val heldX = LiquidIndicatorMotion.scaleX(1.39f, velocity)
-            val heldY = LiquidIndicatorMotion.scaleY(1.39f, velocity)
-            wobble.onInteractionReleased()
-            assertEquals(heldX, LiquidIndicatorMotion.scaleX(1.39f, velocity * wobble.velocityWeight))
-            assertEquals(heldY, LiquidIndicatorMotion.scaleY(1.39f, velocity * wobble.velocityWeight))
-            var previousWeight = wobble.velocityWeight
-            repeat(9) {
-                wobble.advance(0.5f, frame)
-                assertTrue(wobble.velocityWeight <= previousWeight)
-                previousWeight = wobble.velocityWeight
-            }
-            assertEquals(0f, wobble.velocityWeight)
-            assertTrue(wobble.stretch != 0f)
-            wobble.onSelectionChanged(continuous = true)
-            assertEquals(0f, wobble.velocityWeight)
-            wobble.onInteractionStarted()
-            assertEquals(1f, wobble.velocityWeight)
-        }
+    fun `landing distance follows the available range and rejects invalid positions`() {
+        assertFalse(isLiquidIndicatorNearLanding(0.5f, 1f, 4f))
+        assertTrue(isLiquidIndicatorNearLanding(0.95f, 1f, 4f))
+        assertTrue(isLiquidIndicatorNearLanding(0.02f, 0f, 1f))
+        assertFalse(isLiquidIndicatorNearLanding(0.04f, 0f, 1f))
+        assertTrue(isLiquidIndicatorNearLanding(0f, 0f, 0f))
+        assertFalse(isLiquidIndicatorNearLanding(Float.NaN, 0f, 4f))
+        assertFalse(isLiquidIndicatorNearLanding(0f, Float.POSITIVE_INFINITY, 4f))
     }
 
     @Test
@@ -66,126 +45,6 @@ class LiquidIndicatorWobbleTest {
         assertEquals(0f, liquidIndicatorShapeProgress(1f, 1f, bloom))
         assertTrue(liquidIndicatorShapeProgress(0.99f, 1.014f, bloom) > 0f)
         assertTrue(liquidIndicatorShapeProgress(1.1f, 0.9f, 1f).isFinite())
-    }
-
-    @Test
-    fun `busy selection frame keeps its shape instead of clearing and rearming at first tab`() {
-        val wobble = LiquidIndicatorWobble(1f)
-        wobble.onSelectionChanged(continuous = true)
-        repeat(8) {
-            wobble.advance(1f - (it + 1) / 10f, frame, holdSelectionMotion = true)
-        }
-        assertTrue(wobble.stretch != 0f)
-        assertTrue(wobble.advance(0f, 150_000_000L, canSettle = false, holdSelectionMotion = true))
-        assertTrue(wobble.isSelectionMotion)
-        assertTrue(wobble.stretch != 0f)
-        repeat(180) { wobble.advance(0f, frame) }
-        assertEquals(0f, wobble.stretch)
-        repeat(30) { assertFalse(wobble.advance(0f, frame)) }
-    }
-
-    @Test
-    fun `release starts squash on the next frame while position and bloom still settle`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        wobble.onInteractionStarted()
-        repeat(12) {
-            wobble.advance((it + 1) / 20f, frame, canSettle = false, manualInteraction = true)
-        }
-        wobble.onInteractionReleased()
-        assertTrue(wobble.advance(0.7f, frame, canSettle = false))
-        assertTrue(wobble.stretch < -0.01f)
-        assertTrue(wobble.isSelectionMotion)
-        // Continuing the position settle must not cancel or restart the shape spring.
-        wobble.advance(0.8f, frame, canSettle = false)
-        assertTrue(wobble.stretch < -0.01f)
-        repeat(120) { wobble.advance(1f, frame, canSettle = false) }
-        assertEquals(0f, wobble.stretch)
-        assertFalse(wobble.isSelectionMotion)
-        repeat(30) { assertFalse(wobble.advance(1f, frame)) }
-    }
-
-    @Test
-    fun `short drag released between frame samples still recoils immediately`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        wobble.onInteractionStarted()
-        wobble.onInteractionReleased(nextPosition = 0.2f)
-        wobble.advance(0.2f, frame, canSettle = false)
-        assertTrue(wobble.stretch < -0.01f)
-    }
-
-    @Test
-    fun `stationary pointer release has no unsolicited recoil`() {
-        val wobble = LiquidIndicatorWobble(1f)
-        wobble.onInteractionStarted()
-        wobble.advance(1f, frame, canSettle = false, manualInteraction = true)
-        wobble.onInteractionReleased()
-        repeat(60) {
-            assertFalse(wobble.advance(1f, frame))
-            assertEquals(0f, wobble.stretch)
-        }
-    }
-
-    @Test
-    fun `tap landing between samples receives one response and returns to rest`() {
-        val wobble = LiquidIndicatorWobble(1f)
-        wobble.onSelectionChanged(continuous = true)
-        assertTrue(wobble.advance(1f, frame, canSettle = false))
-        assertTrue(wobble.stretch > 0.005f)
-        repeat(120) { wobble.advance(1f, frame) }
-        assertEquals(0f, wobble.stretch)
-        repeat(30) { assertFalse(wobble.advance(1f, frame)) }
-    }
-
-    @Test
-    fun `pointer takeover clears old tap motion before the next frame`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        wobble.onSelectionChanged(continuous = true)
-        wobble.advance(0.2f, frame, holdSelectionMotion = true)
-        assertTrue(wobble.stretch != 0f)
-        wobble.onInteractionStarted()
-        assertEquals(0f, wobble.stretch)
-        assertFalse(wobble.isSelectionMotion)
-    }
-
-    @Test
-    fun `reversing a tap mid travel preserves its shape and settles once`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        wobble.onSelectionChanged(continuous = true)
-        repeat(8) { wobble.advance((it + 1) / 10f, frame, holdSelectionMotion = true) }
-        val before = wobble.stretch
-        wobble.onSelectionChanged(continuous = true)
-        assertEquals(before, wobble.stretch)
-        repeat(8) {
-            wobble.advance(0.8f - (it + 1) / 10f, frame, holdSelectionMotion = true)
-            assertTrue(wobble.stretch.isFinite())
-            assertTrue(kotlin.math.abs(wobble.stretch) < 0.3f)
-        }
-        repeat(180) { wobble.advance(0f, frame) }
-        assertEquals(0f, wobble.stretch)
-        repeat(30) { assertFalse(wobble.advance(0f, frame)) }
-    }
-
-    @Test
-    fun `release recoil converges consistently at 60 90 and 120 hz`() {
-        val samples = listOf(60, 90, 120).map { fps ->
-            val wobble = LiquidIndicatorWobble(0f)
-            val step = 1_000_000_000L / fps
-            wobble.onInteractionStarted()
-            repeat(fps / 5) {
-                wobble.advance((it + 1) * 5f / fps, step,
-                    canSettle = false, manualInteraction = true)
-            }
-            wobble.onInteractionReleased()
-            var minimum = 0f
-            repeat(fps * 2) {
-                wobble.advance(1f, step, canSettle = false)
-                minimum = minOf(minimum, wobble.stretch)
-            }
-            assertEquals(0f, wobble.stretch)
-            assertFalse(wobble.isSelectionMotion)
-            minimum
-        }
-        assertTrue(samples.max() - samples.min() < 0.005f)
     }
 
     @Test
@@ -243,53 +102,6 @@ class LiquidIndicatorWobbleTest {
     }
 
     @Test
-    fun `tap shape travels with the indicator and settles without a second landing impulse`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        wobble.onSelectionChanged(continuous = true)
-        var travelledShape = false
-        repeat(24) {
-            // Ease-out path to an interior tab, with canSettle false throughout travel.
-            val t = (it + 1) / 24f
-            val position = 1f - (1f - t) * (1f - t) * (1f - t)
-            wobble.advance(position, 16_666_667L, canSettle = false, holdSelectionMotion = true)
-            travelledShape = travelledShape || kotlin.math.abs(wobble.stretch) > 0.005f
-        }
-        assertTrue(travelledShape)
-        assertTrue(wobble.isSelectionMotion)
-        repeat(180) { wobble.advance(1f, 16_666_667L) }
-        assertFalse(wobble.isSelectionMotion)
-        assertEquals(0f, wobble.stretch)
-        repeat(60) { assertFalse(wobble.advance(1f, 16_666_667L)) }
-    }
-
-    @Test
-    fun `manual drag immediately interrupts continuous tap shape and keeps its original shape`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        wobble.onSelectionChanged(continuous = true)
-        repeat(10) { wobble.advance((it + 1) / 20f, 16_666_667L, holdSelectionMotion = true) }
-        assertTrue(wobble.stretch != 0f)
-        wobble.advance(0.6f, 16_666_667L, canSettle = false, manualInteraction = true)
-        assertFalse(wobble.isSelectionMotion)
-        assertEquals(0f, wobble.stretch)
-        repeat(10) {
-            wobble.advance(0.6f + (it + 1) / 100f, 16_666_667L,
-                canSettle = false, manualInteraction = true)
-            assertEquals(0f, wobble.stretch)
-        }
-    }
-
-    @Test
-    fun `rapid tap retargeting preserves the existing shape rather than resetting it`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        wobble.onSelectionChanged(continuous = true)
-        repeat(10) { wobble.advance((it + 1) / 20f, 16_666_667L, holdSelectionMotion = true) }
-        val before = wobble.stretch
-        assertTrue(before != 0f)
-        wobble.onSelectionChanged(continuous = true)
-        assertEquals(before, wobble.stretch)
-    }
-
-    @Test
     fun `endpoint squash reaches the shell and rebounds away without crossing it`() {
         val width = 100f
         val inset = 3f
@@ -307,62 +119,6 @@ class LiquidIndicatorWobbleTest {
     }
 
     @Test
-    fun `slow drag still has a visible landing squash without deforming during movement`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        repeat(20) {
-            wobble.advance((it + 1) * 0.005f, 16_666_667L, canSettle = false)
-            assertEquals(0f, wobble.stretch)
-        }
-        var minimum = 0f
-        repeat(90) {
-            wobble.advance(0.1f, 16_666_667L)
-            minimum = minOf(minimum, wobble.stretch)
-        }
-        assertTrue(minimum < -0.1f)
-    }
-
-    private val frame = 16_666_667L
-
-    @Test
-    fun `selection change recoils without requiring sampled drag distance`() {
-        // A click can land between two samples, leaving the observer at its final position.
-        val wobble = LiquidIndicatorWobble(1f)
-        wobble.onSelectionChanged()
-        repeat(30) {
-            assertFalse(wobble.advance(1f, frame, canSettle = false))
-            assertEquals(0f, wobble.stretch)
-        }
-        var recoiled = false
-        repeat(180) {
-            wobble.advance(1f, frame)
-            recoiled = recoiled || wobble.stretch < -0.001f
-        }
-        assertTrue(recoiled)
-        assertEquals(0f, wobble.stretch)
-        repeat(60) { assertFalse(wobble.advance(1f, frame)) }
-    }
-
-    @Test
-    fun `rapid click selections supersede a playing recoil and wait for the latest landing`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        wobble.onSelectionChanged()
-        repeat(10) { wobble.advance(0f, frame) }
-        assertTrue(wobble.stretch != 0f)
-        wobble.onSelectionChanged()
-        assertEquals(0f, wobble.stretch)
-        wobble.advance(0.001f, frame, canSettle = false)
-        repeat(10) { wobble.advance(0.001f, frame, canSettle = false) }
-        assertEquals(0f, wobble.stretch)
-        var recoiled = false
-        repeat(180) {
-            wobble.advance(0.001f, frame)
-            recoiled = recoiled || wobble.stretch < -0.001f
-        }
-        assertTrue(recoiled)
-        assertEquals(0f, wobble.stretch)
-    }
-
-    @Test
     fun `rendering a new drag suppresses the previous tail before its worker resumes`() {
         for (tail in listOf(-0.1f, 0.05f)) {
             assertEquals(0f, resolveLiquidIndicatorRecoilStretch(tail, canSettle = false))
@@ -370,87 +126,96 @@ class LiquidIndicatorWobbleTest {
         }
     }
 
+
     @Test
-    fun `moving adds no shape and stopping plays one recoil then returns exactly to rest`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        repeat(18) {
-            assertTrue(wobble.advance((it + 1) / 18f, frame))
+    fun `release waits for landing then settles once at different refresh rates`() {
+        for (hz in listOf(60, 90, 120)) {
+            val clock = BroadcastFrameClock()
+            val scope = CoroutineScope(Dispatchers.Unconfined + Job() + clock)
+            try {
+                val wobble = LiquidIndicatorWobble(0f, scope)
+                val step = 1_000_000_000L / hz
+                wobble.onInteractionStarted()
+                wobble.advance(0.6f, step, canSettle = false, manualInteraction = true)
+                wobble.onInteractionReleased()
+                wobble.advance(0.9f, step, canSettle = false)
+                assertEquals(0f, wobble.stretch)
+                assertFalse(clock.hasAwaiters)
+                wobble.advance(0.96f, step, landingMotion = true)
+                var minimum = 0f
+                var maximum = 0f
+                repeat(hz * 2) { index ->
+                    clock.sendFrame(index * step)
+                    wobble.advance(1f, step, landingMotion = true)
+                    minimum = minOf(minimum, wobble.stretch)
+                    maximum = maxOf(maximum, wobble.stretch)
+                }
+                assertTrue(minimum < -0.03f)
+                assertTrue(maximum > 0f)
+                assertEquals(0f, wobble.stretch)
+                assertFalse(wobble.isSelectionMotion)
+                assertFalse(clock.hasAwaiters)
+            } finally { scope.cancel() }
+        }
+    }
+
+    @Test
+    fun `press interrupts a tail and a stationary release does not replay it`() {
+        val clock = BroadcastFrameClock()
+        val scope = CoroutineScope(Dispatchers.Unconfined + Job() + clock)
+        try {
+            val wobble = LiquidIndicatorWobble(1f, scope)
+            wobble.onSelectionChanged()
+            wobble.advance(1f, 16_666_667L, landingMotion = true)
+            clock.sendFrame(0L)
+            clock.sendFrame(16_666_667L)
+            assertTrue(wobble.stretch < 0f)
+            wobble.onInteractionStarted()
             assertEquals(0f, wobble.stretch)
-            assertEquals(1.2f, liquidWobbleScaleX(1.2f, wobble.stretch))
-            assertEquals(0.9f, liquidWobbleScaleY(0.9f, wobble.stretch))
-        }
-        var compressed = false
-        var rebounded = false
-        repeat(180) {
-            wobble.advance(1f, frame)
-            compressed = compressed || wobble.stretch < -0.001f
-            rebounded = rebounded || wobble.stretch > 0.001f
-        }
-        assertTrue(compressed)
-        assertTrue(rebounded)
-        assertEquals(0f, wobble.stretch)
-        repeat(60) { assertFalse(wobble.advance(1f, frame)) }
+            assertFalse(clock.hasAwaiters)
+            wobble.onInteractionReleased()
+            assertFalse(wobble.advance(1f, 16_666_667L, landingMotion = true))
+            assertFalse(clock.hasAwaiters)
+        } finally { scope.cancel() }
     }
 
     @Test
-    fun `held gesture and residual original velocity block the recoil`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        repeat(18) { wobble.advance((it + 1) / 18f, frame, canSettle = false) }
-        repeat(60) {
-            assertFalse(wobble.advance(1f, frame, canSettle = false))
+    fun `new selection waits for its landing and delayed acknowledgement preserves release`() {
+        val clock = BroadcastFrameClock()
+        val scope = CoroutineScope(Dispatchers.Unconfined + Job() + clock)
+        try {
+            val wobble = LiquidIndicatorWobble(0f, scope)
+            wobble.onInteractionStarted()
+            wobble.advance(0.6f, 16_666_667L, canSettle = false, manualInteraction = true)
+            wobble.onInteractionReleased()
+            wobble.advance(1f, 16_666_667L, landingMotion = true)
+            clock.sendFrame(0L)
+            clock.sendFrame(16_666_667L)
+            val before = wobble.stretch
+            wobble.onSelectionChanged(preserveRelease = true)
+            assertEquals(before, wobble.stretch)
+            wobble.onSelectionChanged()
             assertEquals(0f, wobble.stretch)
-        }
-        var recoiled = false
-        repeat(30) {
-            wobble.advance(1f, frame, canSettle = true)
-            recoiled = recoiled || wobble.stretch < -0.001f
-        }
-        assertTrue(recoiled)
+            wobble.advance(0.5f, 16_666_667L, canSettle = false)
+            assertFalse(clock.hasAwaiters)
+            wobble.advance(0f, 16_666_667L, landingMotion = true)
+            assertTrue(clock.hasAwaiters)
+        } finally { scope.cancel() }
     }
 
     @Test
-    fun `new movement or stationary press cancels a playing recoil`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        repeat(18) { wobble.advance((it + 1) / 18f, frame) }
-        repeat(10) { wobble.advance(1f, frame) }
-        assertTrue(wobble.stretch != 0f)
-        wobble.advance(1.1f, frame)
-        assertEquals(0f, wobble.stretch)
-        repeat(10) { wobble.advance(1.1f, frame) }
-        assertTrue(wobble.stretch != 0f)
-        assertFalse(wobble.advance(1.1f, frame, canSettle = false))
-        assertEquals(0f, wobble.stretch)
-        repeat(60) { assertFalse(wobble.advance(1.1f, frame)) }
-    }
-
-    @Test
-    fun `both directions recoil equally and idle taps do not arm recoil`() {
-        val forward = LiquidIndicatorWobble(0f)
-        val backward = LiquidIndicatorWobble(4f)
-        repeat(18) {
-            val position = (it + 1) / 18f
-            forward.advance(position, frame)
-            backward.advance(4f - position, frame)
-        }
-        repeat(120) {
-            forward.advance(1f, frame)
-            backward.advance(3f, frame)
-            assertEquals(forward.stretch, backward.stretch, 0.0001f)
-        }
-        val idle = LiquidIndicatorWobble(2f)
-        repeat(10) { assertFalse(idle.advance(2f, frame, canSettle = false)) }
-        repeat(60) { assertFalse(idle.advance(2f, frame)) }
-    }
-
-    @Test
-    fun `suspension or invalid samples clear the pending recoil`() {
-        val wobble = LiquidIndicatorWobble(0f)
-        repeat(10) { wobble.advance((it + 1) / 10f, frame) }
-        assertFalse(wobble.advance(1f, 1_000_000_000L))
-        repeat(60) { assertFalse(wobble.advance(1f, frame)) }
-        wobble.advance(2f, frame)
-        assertFalse(wobble.advance(Float.NaN, frame))
-        assertEquals(0f, wobble.stretch)
-        repeat(60) { assertFalse(wobble.advance(2f, frame)) }
+    fun `disabled system animations finish recoil on the first frame`() {
+        val clock = BroadcastFrameClock()
+        val scale = object : MotionDurationScale { override val scaleFactor = 0f }
+        val scope = CoroutineScope(Dispatchers.Unconfined + Job() + clock + scale)
+        try {
+            val wobble = LiquidIndicatorWobble(1f, scope)
+            wobble.onSelectionChanged()
+            wobble.advance(1f, 16_666_667L, landingMotion = true)
+            clock.sendFrame(0L)
+            assertEquals(0f, wobble.stretch)
+            assertFalse(wobble.isSelectionMotion)
+            assertFalse(clock.hasAwaiters)
+        } finally { scope.cancel() }
     }
 }

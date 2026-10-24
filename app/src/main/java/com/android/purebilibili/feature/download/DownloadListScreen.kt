@@ -1,5 +1,8 @@
 package com.android.purebilibili.feature.download
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
 import com.android.purebilibili.core.ui.AppContentColors
 import com.android.purebilibili.core.ui.components.appElasticPress
 
@@ -75,6 +78,7 @@ fun DownloadListScreen(
 ) {
     val context = LocalContext.current
     val actionScope = rememberCoroutineScope()
+    val downloadHaptic = rememberHapticFeedback()
     val listLayout = rememberVideoListLayoutControl(defaultSingleColumn = true)
     val gridState = rememberLazyGridState()
     val columns = resolveVideoListColumns(
@@ -255,10 +259,15 @@ fun DownloadListScreen(
                             },
                             onPauseResume = {
                                 actionScope.launch {
-                                    if (task.isDownloading) {
+                                    val currentTask = DownloadManager.tasks.value[task.id] ?: return@launch
+                                    if (currentTask.isDownloading) {
                                         DownloadManager.pauseDownload(task.id)
-                                    } else if (task.canResume) {
+                                    } else if (currentTask.canResume) {
                                         DownloadManager.startDownload(task.id)
+                                    }
+                                    val updatedStatus = DownloadManager.tasks.value[task.id]?.status
+                                    if (updatedStatus != null && updatedStatus != currentTask.status) {
+                                        downloadHaptic(HapticType.LIGHT)
                                     }
                                 }
                             },

@@ -1,8 +1,8 @@
 package com.android.purebilibili.feature.video.ui.overlay
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -630,7 +630,7 @@ private fun AttentionCommandIconSlot(
     var pressed by remember { mutableStateOf(false) }
     val scale = animateFloatAsState(
         targetValue = if (pressed) 1.1f else 1f,
-        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 160, easing = AppMotionEasing.M1Standard),
         label = "attentionActionPressScale",
     )
     LaunchedEffect(pulseKey) {

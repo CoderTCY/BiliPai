@@ -1,8 +1,8 @@
 package com.android.purebilibili.feature.home.components
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 
 import androidx.compose.foundation.background
@@ -87,6 +87,8 @@ internal fun BottomBarFloatingSegmentedControl(
     liquidGlassMeasurementLabels: List<String>? = null,
     liquidGlassAnimateLabelWidthChanges: Boolean = false,
     isPagerDraggingProvider: (() -> Boolean)? = null,
+    pagerTargetPositionProvider: (() -> Float)? = null,
+    isPagerNavigatingProvider: (() -> Boolean)? = null,
     itemContent: (@Composable ColumnScope.(index: Int, label: String, selected: Boolean) -> Unit)? = null,
 ) {
     if (items.isEmpty()) return
@@ -199,7 +201,7 @@ internal fun BottomBarFloatingSegmentedControl(
         measuredIndicatorContentWidths?.map { width ->
             animateDpAsState(
                 targetValue = width,
-                animationSpec = tween(180, easing = FastOutSlowInEasing),
+                animationSpec = tween(180, easing = AppMotionEasing.M1Standard),
                 label = "glassAsyncBadgeIndicatorWidth",
             ).value
         }
@@ -360,6 +362,8 @@ internal fun BottomBarFloatingSegmentedControl(
             onIndicatorDragStateChanged = onIndicatorDragStateChanged,
             externalPagerMotionEffectsEnabled = externalPagerMotionEffectsEnabled,
             isPagerDraggingProvider = isPagerDraggingProvider,
+            pagerTargetPositionProvider = pagerTargetPositionProvider,
+            isPagerNavigatingProvider = isPagerNavigatingProvider,
             liquidGlassTuning = liquidGlassTuning,
             drawShell = scrollState == null,
             onDockTranslationProviderChanged = if (scrollState != null) {

@@ -2,7 +2,6 @@ package com.android.purebilibili.core.theme
 
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.rememberTransition
@@ -12,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import top.yukonga.miuix.kmp.theme.Colors
 
 internal const val APP_THEME_COLOR_TRANSITION_DURATION_MS = 240
@@ -43,7 +43,7 @@ internal fun rememberAnimatedAppThemePalette(
     SideEffect { transitionState.targetState = target }
     val transition = rememberTransition(transitionState, label = "appThemePalette")
     val spec: FiniteAnimationSpec<Color> =
-        tween(APP_THEME_COLOR_TRANSITION_DURATION_MS, easing = FastOutSlowInEasing)
+        tween(APP_THEME_COLOR_TRANSITION_DURATION_MS, easing = AppMotionEasing.M1Standard)
     val material = transition.animatedMaterialColors(spec)
     val miuix = transition.animatedMiuixColors(spec)
     val liquidAccent = transition.themeColor("liquidAccent", spec) { it.liquidAccent }

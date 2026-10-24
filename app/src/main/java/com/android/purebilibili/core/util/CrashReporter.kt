@@ -252,6 +252,7 @@ object CrashReporter {
      * 记录前后台状态，便于排查崩溃发生场景
      */
     fun setAppForegroundState(inForeground: Boolean) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.foreground(inForeground)
         if (!isEnabled) return
         if (lastAppForegroundState == inForeground) return
         lastAppForegroundState = inForeground
@@ -267,6 +268,7 @@ object CrashReporter {
      * 标记当前页面
      */
     fun setLastScreen(screenName: String) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.screen(screenName)
         if (!isEnabled) return
         try {
             setCustomKey("last_screen", screenName.take(100))
@@ -279,6 +281,7 @@ object CrashReporter {
      * 标记最近一次业务事件
      */
     fun setLastEvent(eventName: String) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.event(eventName)
         if (!isEnabled) return
         try {
             setCustomKey("last_event", eventName.take(100))

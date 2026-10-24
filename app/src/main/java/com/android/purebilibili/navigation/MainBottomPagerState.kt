@@ -42,6 +42,10 @@ internal class MainBottomPagerState(
     /** Stable adapters for UI components that observe values from snapshotFlow. */
     val indicatorPositionProvider: () -> Float = { indicatorPosition }
     val scrollInProgressProvider: () -> Boolean = { isScrollInProgress }
+    val programmaticNavigationProvider: () -> Boolean = { isNavigating }
+    val targetPositionProvider: () -> Float = {
+        (if (isNavigating) selectedPage else pagerState.targetPage).toFloat()
+    }
 
     private var navJob: Job? = null
 

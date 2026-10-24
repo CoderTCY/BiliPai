@@ -188,6 +188,7 @@ data class VideoPlayerOverlayActions(
     val onToggleFullscreen: () -> Unit,
     val onLockToggle: () -> Unit = {},
     val onBottomControlsSizeChanged: (Int) -> Unit = {},
+    val onPersistentChapterBarHeightChanged: (Int) -> Unit = {},
     val onSponsorContributionMarkBoundary: () -> Unit = {},
     val onSponsorContributionMarkWholeVideo: () -> Unit = {},
     val onSponsorContributionCancel: () -> Unit = {},

@@ -1,7 +1,6 @@
 package com.android.purebilibili.feature.video.ui.components
 
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.foundation.gestures.Orientation
@@ -30,6 +29,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.dp
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.LocalAppThemeConfig
 import com.android.purebilibili.core.ui.LocalComponentMotionEnabled
 import com.android.purebilibili.core.ui.motion.rememberSystemReduceMotion
@@ -82,7 +82,7 @@ internal fun LandscapeSidePanel(
             val spec: AnimationSpec<Float> = if (groupMotionEnabled) {
                 ControlCenterMotionSpec.springSpec(closing = dismiss)
             } else {
-                tween(durationMillis = durationMillis, easing = FastOutSlowInEasing)
+                tween(durationMillis = durationMillis, easing = AppMotionEasing.M1Standard)
             }
             animate(
                 initialValue = activeProgress.floatValue,

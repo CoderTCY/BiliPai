@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.android.purebilibili.feature.video.player
 
 import android.app.NotificationChannel
@@ -37,10 +39,7 @@ internal fun resolvePlaybackServiceFallbackIconRes(iconKey: String): Int {
     return resolveNotificationSmallIconRes(iconKey)
 }
 
-/**
- * Android 17 后台音频入口。MediaSessionService 负责向系统暴露现有
- * MediaSession，前台通知仍复用 MiniPlayerManager 已稳定的样式和控制逻辑。
- */
+/** 媒体服务负责会话通知的状态、动作和前台生命周期，启动阶段保留准备通知。 */
 class PlaybackService : MediaSessionService() {
 
     companion object {
@@ -54,25 +53,43 @@ class PlaybackService : MediaSessionService() {
         @Volatile private var latestHandledStartId = 0
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        MiniPlayerManager.getInstance(applicationContext).mediaSession
+    private var notificationOwner: MiniPlayerManager? = null
+    private val refreshNotification: () -> Unit = {
+        bindCurrentSession()
+        triggerNotificationUpdate()
+    }
 
-    override fun onUpdateNotification(
-        session: MediaSession,
-        startInForegroundRequired: Boolean
-    ) {
-        val manager = MiniPlayerManager.getInstance(applicationContext)
-        val notification = manager.currentNotification
-        if (startInForegroundRequired) {
-            startAsForeground(notification ?: buildFallbackNotification())
-            isForegroundStarted = true
-        } else if (notification != null) {
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(NOTIFICATION_ID, notification)
-        } else {
-            isForegroundStarted = false
-            stopForeground(STOP_FOREGROUND_REMOVE)
+    override fun onCreate() {
+        super.onCreate()
+        ensureNotificationChannel()
+        bindNotificationOwner(MiniPlayerManager.getInstance(applicationContext))
+    }
+
+    private fun bindNotificationOwner(owner: MiniPlayerManager?) {
+        if (notificationOwner === owner) return
+        notificationOwner?.let { previous ->
+            if (previous.onNotificationRefreshRequested === refreshNotification) {
+                previous.onNotificationRefreshRequested = null
+            }
         }
+        notificationOwner = owner
+        if (owner != null) {
+            owner.onNotificationRefreshRequested = refreshNotification
+            setMediaNotificationProvider(PlaybackMediaNotificationProvider(this, owner::decoratePlaybackNotification))
+        }
+    }
+
+    private fun bindCurrentSession() {
+        // 播放器管理器释放后可重新创建，存活的服务不能继续绑定旧实例。
+        bindNotificationOwner(MiniPlayerManager.getInstanceOrNull())
+        val current = notificationOwner?.mediaSession
+        sessions.filter { it !== current }.forEach(::removeSession)
+        if (current != null && !isSessionAdded(current)) addSession(current)
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        bindCurrentSession()
+        return notificationOwner?.mediaSession
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -84,7 +101,7 @@ class PlaybackService : MediaSessionService() {
             ACTION_START_FOREGROUND, ACTION_MEDIA_CONTROL -> {
                 if (shouldRefreshPlaybackServiceForeground(action, isForegroundStarted)) {
                     try {
-                        // 获取 MiniPlayerManager 中构建好的通知
+                        // 启动时复用最近的媒体通知；尚未生成时使用准备通知。
                         val primaryNotification = MiniPlayerManager.getInstance(applicationContext).currentNotification
                         val notification = if (shouldStartForegroundWithFallback(primaryNotification)) {
                             Logger.w(TAG, "Primary notification missing, starting foreground with fallback notification")
@@ -94,6 +111,8 @@ class PlaybackService : MediaSessionService() {
                         }
                         startAsForeground(notification)
                         isForegroundStarted = true
+                        bindCurrentSession()
+                        triggerNotificationUpdate()
                         // A notification action must promote the service before resuming audio.
                         if (action == ACTION_MEDIA_CONTROL) {
                             resolveMediaControlType(
@@ -133,6 +152,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        bindNotificationOwner(null)
         super.onDestroy()
         isForegroundStarted = false
         latestHandledStartId = 0

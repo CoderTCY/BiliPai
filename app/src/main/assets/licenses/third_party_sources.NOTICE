@@ -86,3 +86,13 @@ design-system/src/main/java/com/android/purebilibili/core/ui/animation/LiquidInd
  * deformation and press transforms are retained; new interaction cancels recoil.
  * Full license: flclash.LICENSE.
  */
+
+core-data/src/main/java/com/android/purebilibili/core/network/AccountCookieSession.kt
+core-data/src/main/java/com/android/purebilibili/core/network/BuvidManager.kt
+core-data/src/main/java/com/android/purebilibili/data/repository/VideoLoadPolicy.kt
+Login session and Web playback behavior referenced against PiliPlus:
+https://github.com/bggRGjQaUbCoE/PiliPlus/tree/3d0aed958b3b7e59c39c121196f189f429719904
+Upstream files: lib/utils/accounts/account.dart, account_manager/account_mgr.dart,
+lib/http/video.dart, lib/http/init.dart, lib/utils/id_utils.dart and lib/pages/login/controller.dart.
+PiliPlus contributors; GPL-3.0. Distributed as part of BiliPai under GPLv3.
+License copy: artwork/third-party/piliplus/LICENSE in the source distribution.

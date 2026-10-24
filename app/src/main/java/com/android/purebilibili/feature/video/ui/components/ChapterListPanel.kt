@@ -1,5 +1,8 @@
 package com.android.purebilibili.feature.video.ui.components
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -27,6 +30,7 @@ fun ChapterListPanel(
     isFullscreen: Boolean = false, playerBounds: IntRect? = null,
     showViewPoints: Boolean = true, onShowViewPointsChange: ((Boolean) -> Unit)? = null,
 ) {
+    val selectionHaptic = rememberHapticFeedback()
     val currentIndex = viewPoints.indexOfLast { currentPositionMs >= it.fromMs && currentPositionMs < it.to.toLong() * 1000L }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = currentIndex.coerceAtLeast(0))
     PlayerDetailPanel(
@@ -42,7 +46,11 @@ fun ChapterListPanel(
             contentPadding = PaddingValues(top = 7.dp, bottom = 100.dp)) {
             itemsIndexed(viewPoints) { index, point ->
                 val range = "${FormatUtils.formatDuration(point.from)} - ${FormatUtils.formatDuration(point.to)}"
-                PlayerPanelMediaRow(point.content, point.imgUrl, 0, index == currentIndex, range) {
+                PlayerPanelMediaRow(
+                    point.content, point.imgUrl, 0, index == currentIndex, range,
+                    expandTitle = true,
+                ) {
+                    if (index != currentIndex) selectionHaptic(HapticType.LIGHT)
                     onSeek(point.fromMs)
                     requestDismiss()
                 }

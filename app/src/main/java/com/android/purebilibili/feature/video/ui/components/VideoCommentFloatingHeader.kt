@@ -1,12 +1,7 @@
 package com.android.purebilibili.feature.video.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -15,14 +10,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.android.purebilibili.core.ui.AppChromeSizeTokens
 import com.android.purebilibili.feature.video.viewmodel.CommentSortMode
 import top.yukonga.miuix.kmp.blur.Backdrop
 
 /**
- * 普通视频与番剧共用的浮动评论栏。跟随滚动隐藏、居中对齐仅属于液态玻璃；
- * 关闭玻璃时保留原生排序控件的位置与可见性，列表占位由调用方保持固定。
+ * 普通视频与番剧共用的评论操作栏，不接管列表滚动显隐。
+ * 标题与排序在空间不足时换行；宿主测量整栏高度供列表占位和背景使用。
+ * 玻璃只影响材质，原生排序控件保留自身尺寸及光学偏移。
  */
 @Composable
 internal fun VideoCommentFloatingHeader(
@@ -32,10 +29,10 @@ internal fun VideoCommentFloatingHeader(
     onSearchClick: () -> Unit,
     backdrop: Backdrop?,
     liquidGlassEnabled: Boolean,
-    listAtTop: Boolean,
-    motionEnabled: Boolean,
     /** 详情页可在玻璃关闭时也使用紧凑标题；番剧等宿主保持原生默认。 */
     compactTitleTypography: Boolean = false,
+    /** 标题文字随评论列表滚动隐藏的进度 0..1，0 = 完全可见；排序控件不跟随隐藏。 */
+    titleCollapseProgress: () -> Float = { 0f },
     modifier: Modifier = Modifier,
 ) {
     val nativeSortDockLiftDp = remember {
@@ -44,40 +41,34 @@ internal fun VideoCommentFloatingHeader(
             indicatorHeightDp = AppChromeSizeTokens.BottomBarMatchedSegmentedIndicatorHeightDp,
         )
     }
-    AnimatedVisibility(
-        visible = !liquidGlassEnabled || listAtTop,
-        enter = if (motionEnabled) fadeIn(tween(120)) else EnterTransition.None,
-        exit = if (motionEnabled) fadeOut(tween(90)) else ExitTransition.None,
-        modifier = modifier,
+    FlowRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 46.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.fillMaxWidth().heightIn(min = 46.dp)) {
-            // 整栏的显隐统一由外层决定，原生标题不能再单独绑定 listAtTop。
-            CommentListHeader(
-                count = count,
-                title = "${sortMode.label}评论",
-                liquidGlassEffectsEnabled = liquidGlassEnabled,
-                compactTypography = compactTitleTypography,
-                modifier = Modifier.align(
-                    if (liquidGlassEnabled) Alignment.CenterStart else Alignment.TopStart
-                ),
-            )
-            CommentSortFilterBar(
-                sortMode = sortMode,
-                onSortModeChange = onSortModeChange,
-                modifier = if (liquidGlassEnabled) {
-                    Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(top = 6.dp, end = 16.dp)
-                } else {
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 6.dp, end = 16.dp)
-                        .offset(y = (-nativeSortDockLiftDp).dp)
-                },
-                miuixBackdrop = if (liquidGlassEnabled) backdrop else null,
-                liquidGlassEffectsEnabled = liquidGlassEnabled,
-                onSearchClick = onSearchClick,
-            )
-        }
+        CommentListTitle(
+            count = count,
+            title = "${sortMode.label}评论",
+            liquidGlassEnabled = liquidGlassEnabled,
+            compactTypography = compactTitleTypography,
+            modifier = Modifier.graphicsLayer {
+                val progress = titleCollapseProgress().coerceIn(0f, 1f)
+                alpha = 1f - progress
+                translationY = -12.dp.toPx() * progress
+            },
+        )
+        CommentSortFilterBar(
+            sortMode = sortMode,
+            onSortModeChange = onSortModeChange,
+            modifier = if (liquidGlassEnabled) Modifier else
+                Modifier.offset(y = (-nativeSortDockLiftDp).dp),
+            miuixBackdrop = if (liquidGlassEnabled) backdrop else null,
+            liquidGlassEffectsEnabled = liquidGlassEnabled,
+            onSearchClick = onSearchClick,
+        )
     }
 }

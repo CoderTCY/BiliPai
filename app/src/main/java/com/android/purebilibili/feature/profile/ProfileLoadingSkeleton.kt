@@ -1,9 +1,9 @@
 package com.android.purebilibili.feature.profile
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 
 import com.android.purebilibili.core.ui.AppSurfaceTokens
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -283,7 +283,7 @@ private fun rememberProfileSkeletonBlockColor(animated: Boolean): Color {
             animationSpec = infiniteRepeatable(
                 animation = tween(
                     durationMillis = PROFILE_SKELETON_PULSE_DURATION_MILLIS,
-                    easing = FastOutSlowInEasing,
+                    easing = AppMotionEasing.M1Standard,
                 ),
                 repeatMode = RepeatMode.Reverse,
             ),

@@ -275,6 +275,21 @@ fun AudioModeScreen(
             )
         }
     }
+    // 复用旧 Success 进入（如小横条展开）时播放器可能已被释放：无 player 且入口
+    // 未携带 bvid 时，用缓存内容强制重载自愈，避免停留在只有封面的死页面。
+    LaunchedEffect(player, displayState, initialBvid) {
+        val success = displayState ?: return@LaunchedEffect
+        if (player != null || initialBvid.isNotBlank()) return@LaunchedEffect
+        val bvid = success.info.bvid
+        if (bvid.isBlank()) return@LaunchedEffect
+        viewModel.loadVideo(
+            bvid = bvid,
+            cid = success.info.cid,
+            force = true,
+            autoPlay = true,
+            fallbackResumePositionMs = success.startPosition,
+        )
+    }
     DisposableEffect(viewModel) {
         viewModel.setAudioMode(true)
         AudioNowPlayingSession.markListening()

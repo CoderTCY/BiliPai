@@ -1,12 +1,12 @@
 package com.android.purebilibili.feature.video.ui.components
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.components.AppText
 import com.android.purebilibili.core.ui.videoCardTitleMaxLines
 import com.android.purebilibili.core.ui.videoCardTitleOverflow
 import com.android.purebilibili.feature.home.HomeFeedCardLayout
 import com.android.purebilibili.core.ui.AppContentColors
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -418,7 +418,7 @@ private fun rememberVideoSkeletonPulse(): Float {
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = VIDEO_SKELETON_PULSE_DURATION_MILLIS,
-                easing = FastOutSlowInEasing
+                easing = AppMotionEasing.M1Standard
             ),
             repeatMode = RepeatMode.Reverse
         ),

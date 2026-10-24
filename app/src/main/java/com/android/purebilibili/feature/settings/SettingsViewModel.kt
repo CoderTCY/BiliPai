@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.android.purebilibili.core.store.DEFAULT_APP_ICON_KEY
 import com.android.purebilibili.core.store.AppIconAppearance
 import com.android.purebilibili.core.store.SettingsManager
+import com.android.purebilibili.core.store.PlaybackPreferencesSettings
 import com.android.purebilibili.core.store.BottomBarSearchAutoExpandMode
 import com.android.purebilibili.core.store.BottomBarSearchLayoutMode
 import com.android.purebilibili.core.store.HomeFeedCardWidthPreset
@@ -52,6 +53,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class SettingsDiagnosticsLoadState {
     NOT_LOADED,
@@ -311,6 +314,43 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private val context = application.applicationContext
+
+    // 设置目的地退出不取消已接受的编辑；串行写入保持连续操作的提交顺序。
+    private val navigationEditMutex = Mutex()
+
+    fun saveBottomBarConfiguration(order: List<String>, visible: Set<String>) {
+        val savedOrder = order.toList()
+        val savedVisible = visible.toSet()
+        viewModelScope.launch {
+            navigationEditMutex.withLock {
+                SettingsManager.setBottomBarConfiguration(context, savedOrder, savedVisible)
+            }
+        }
+    }
+
+    fun saveTopTabConfiguration(order: List<String>, visible: Set<String>) {
+        val savedOrder = order.toList()
+        val savedVisible = visible.toSet()
+        viewModelScope.launch {
+            navigationEditMutex.withLock {
+                SettingsManager.setTopTabConfiguration(context, savedOrder, savedVisible)
+            }
+        }
+    }
+
+    fun saveSearchTabOrder(order: List<String>) {
+        val savedOrder = order.toList()
+        viewModelScope.launch {
+            navigationEditMutex.withLock {
+                SettingsManager.setSearchFilterTabOrder(context, savedOrder)
+            }
+        }
+    }
+
+    // 保留跨设置页的最新值；离开设置后停止订阅，重新进入时不重放假默认值。
+    internal val playbackPreferences: StateFlow<PlaybackPreferencesSettings?> =
+        SettingsManager.getPlaybackPreferencesSettings(context)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private data class DiagnosticsState(
         val installedApkSha256: String? = null,

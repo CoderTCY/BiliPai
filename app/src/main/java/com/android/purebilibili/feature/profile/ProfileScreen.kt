@@ -1,5 +1,6 @@
 package com.android.purebilibili.feature.profile
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 
 import com.android.purebilibili.feature.personal.PersonalMediaCardFrame
@@ -5407,7 +5408,7 @@ fun ProfileTripleActionEntry(
         animationSpec = if (isLongPressing) {
             androidx.compose.animation.core.tween(durationMillis = progressDuration, easing = androidx.compose.animation.core.LinearEasing)
         } else {
-            androidx.compose.animation.core.tween(durationMillis = 200, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            androidx.compose.animation.core.tween(durationMillis = 200, easing = AppMotionEasing.M1Standard)
         },
         label = "tripleProgress",
         finishedListener = { progress ->

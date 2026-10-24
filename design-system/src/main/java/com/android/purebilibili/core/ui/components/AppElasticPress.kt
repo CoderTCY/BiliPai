@@ -29,7 +29,7 @@ import android.os.Build
 import android.graphics.RuntimeShader
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.addOutline
@@ -215,12 +215,21 @@ fun Modifier.appElasticPress(
                 // An ancestor graphicsLayer only stretches a previously rendered glass texture.
                 if (transformInBackdrop) Modifier else Modifier
                     .graphicsLayer(elasticState.layerBlock)
-                    .drawWithContent {
-                        drawContent()
-                        // Clip only the light, never the moving content or its parent viewport.
+                    .drawWithCache {
+                        // Geometry is shared by press frames; resize, density, direction and shape
+                        // changes rebuild the cache. Idle controls do not allocate a clip path.
                         val outline = highlightShape.createOutline(size, layoutDirection, this)
-                        val path = Path().apply { addOutline(outline) }
-                        clipPath(path) { elasticState.drawHighlight(this) }
+                        var highlightPath: Path? = null
+                        onDrawWithContent {
+                            drawContent()
+                            if (press.value > 0f && size.minDimension > 0f) {
+                                val path = highlightPath ?: Path().apply {
+                                    addOutline(outline)
+                                }.also { highlightPath = it }
+                                // Clip only the light, preserving the content and backdrop transform.
+                                clipPath(path) { elasticState.drawHighlight(this) }
+                            }
+                        }
                     }
             )
     }.then(this)

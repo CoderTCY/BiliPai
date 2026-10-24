@@ -1,6 +1,8 @@
 // 文件路径: feature/video/ui/components/VideoSettingsPanel.kt
 package com.android.purebilibili.feature.video.ui.components
 
+import com.android.purebilibili.core.store.ChapterDisplayMode
+import com.android.purebilibili.feature.settings.playbackSettingTitle
 import com.android.purebilibili.core.ui.AppContentColors
 import com.android.purebilibili.feature.video.screen.AudioModeSleepTimerDialog
 import com.android.purebilibili.core.ui.components.AppTextButton
@@ -330,6 +332,8 @@ fun VideoSettingsPanel(
     cdnServiceLabels: List<String> = emptyList(),
     currentCdnServiceIndex: Int = 0,
     onCdnServiceSelected: ((Int) -> Unit)? = null,
+    chapterDisplayMode: ChapterDisplayMode = ChapterDisplayMode.WITH_CONTROLS,
+    onChapterDisplayModeChange: ((ChapterDisplayMode) -> Unit)? = null,
     // 关闭面板
     onDismiss: () -> Unit
 ) {
@@ -461,6 +465,13 @@ fun VideoSettingsPanel(
                             onDownloadVideo?.let { action -> PlayerSettingsRow("离线缓存") { onDismiss(); action() } }
                             PlayerSettingsRow("保存封面") { onDismiss(); onSaveCover() }
                             PlayerSettingsRow("定时关闭", sleepTimerMinutes?.let { "剩余 $it 分钟" }) { page = "sleep" }
+                            onChapterDisplayModeChange?.let { onModeChange ->
+                                PlayerSettingsPopupRow(
+                                    title = playbackSettingTitle("playback.chapter_display_mode"),
+                                    current = chapterDisplayMode.label,
+                                    options = ChapterDisplayMode.entries.map { it.label },
+                                ) { index -> onModeChange(ChapterDisplayMode.entries[index]) }
+                            }
                             onEditPlayUrl?.let { action -> PlayerSettingsRow("播放地址") { onDismiss(); action() } }
                             PlayerSettingsRow("重载视频") { onDismiss(); onReload() }
                             PlayerSettingsPopupRow(

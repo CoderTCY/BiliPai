@@ -1,11 +1,16 @@
 package com.android.purebilibili.feature.video.subtitle
 
-import kotlin.test.Test
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], manifest = Config.NONE)
 class SubtitleDocumentCodecTest {
     @Test fun decodesUnicodeDocumentByteOrderMarks() {
         val text = "字幕"
@@ -39,6 +44,22 @@ class SubtitleDocumentCodecTest {
         assertEquals(1230L, cues.single().startMs)
         assertEquals(3450L, cues.single().endMs)
         assertEquals("Hello, world\nnext line", cues.single().content)
+    }
+
+    @Test fun vttMarkupAndOverlappingCuesUseTheStandardTimeline() {
+        val cues = parseSubtitleDocument("track.vtt", """
+            WEBVTT
+
+            00:00.000 --> 00:02.000
+            <ruby>汉<rt>han</rt></ruby> &amp; first
+
+            00:01.000 --> 00:03.000
+            second
+        """.trimIndent())
+        assertEquals("汉 & first", resolveSubtitleTextAt(cues, 500))
+        assertEquals("汉 & first\nsecond", resolveSubtitleTextAt(cues, 1500))
+        assertEquals("second", resolveSubtitleTextAt(cues, 2500))
+        assertEquals(null, resolveSubtitleTextAt(cues, 3500))
     }
 
     @Test fun parsesBccUsingExistingBilibiliTimeline() {

@@ -895,7 +895,9 @@ internal fun miuixVideoCardNavTransition(
                         // expose the player's black Surface frame at landing.
                         alpha = 1f
                         val poseWeight = resolveMiuixVideoCardGesturePoseWeight(morph)
-                        clip = morph < 0.999f || poseWeight > 0.001f || (gestureFollowEnabled && scope.gesture != null)
+                        val needsClip = morph < 0.999f || poseWeight > 0.001f ||
+                            (gestureFollowEnabled && scope.gesture != null)
+                        clip = needsClip
                         val physicalRadius = resolveMiuixVideoCardGestureCornerPx(
                             sourceCornerPx = corner.dp.toPx(),
                             morphProgress = morph,
@@ -906,7 +908,10 @@ internal fun miuixVideoCardNavTransition(
                         val radX = physicalRadius / outerScaleX.coerceAtLeast(0.01f)
                         val radY = physicalRadius / outerScaleY.coerceAtLeast(0.01f)
                         val activeShape = if (useShapeA) clipShapeA else clipShapeB
-                        if (kotlin.math.abs(activeShape.radiusX - radX) > 0.05f || kotlin.math.abs(activeShape.radiusY - radY) > 0.05f) {
+                        if (!needsClip) {
+                            // 展开完成后同时清除圆角轮廓，避免旧系统保留进场遮罩直到尺寸改变。
+                            shape = androidx.compose.ui.graphics.RectangleShape
+                        } else if (kotlin.math.abs(activeShape.radiusX - radX) > 0.05f || kotlin.math.abs(activeShape.radiusY - radY) > 0.05f) {
                             useShapeA = !useShapeA
                             val nextShape = if (useShapeA) clipShapeA else clipShapeB
                             nextShape.radiusX = radX

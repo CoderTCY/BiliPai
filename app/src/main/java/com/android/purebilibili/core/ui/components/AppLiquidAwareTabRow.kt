@@ -1,9 +1,9 @@
 package com.android.purebilibili.core.ui.components
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.util.LocalWindowSizeClass
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
@@ -182,7 +182,7 @@ fun <T> AppLiquidAwareTabRow(
     val readableTabWidth = if (animateLabelWidths) {
         animateDpAsState(
             targetValue = measuredTabWidth,
-            animationSpec = tween(180, easing = FastOutSlowInEasing),
+            animationSpec = tween(180, easing = AppMotionEasing.M1Standard),
             label = "glassAsyncAdaptiveTabWidth",
         ).value
     } else measuredTabWidth

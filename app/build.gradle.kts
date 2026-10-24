@@ -14,8 +14,6 @@ plugins {
     // 导航分发器被父级级联释放后，容忍子页面重复清理及延后的启用状态更新。
     id("com.android.bilipai.navigationevent-disposal-guard")
     id("com.android.bilipai.workmanager-namespace-guard")
-    // Miuix 0.9.4 的取色字节码适配 MaterialKolor 6，保留 SPEC_2026 / CMF。
-    id("com.android.bilipai.miuix-materialkolor-compat")
     // Room 数据库编译插件
     id("com.google.devtools.ksp")
     // 🔥 Firebase 相关插件
@@ -142,8 +140,8 @@ android {
         targetSdk = 37
         // 版本名按发行计划确定；versionCode 每次发布单调 +1
         // 规范：docs/wiki/VERSIONING.md · 更新日志：CHANGELOG.md
-        versionCode = 508
-        versionName = "0.5.4"
+        versionCode = 511
+        versionName = "0.5.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -513,6 +511,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")  // 🔥 HLS 直播流支持
     implementation("androidx.media3:media3-ui:$media3Version")
+    implementation("androidx.media3:media3-extractor:$media3Version")
     implementation("androidx.media3:media3-datasource:$media3Version")
     implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
     implementation("androidx.media3:media3-session:$media3Version")
@@ -525,6 +524,8 @@ dependencies {
     // 注：FFmpegKit 已于 2025 年停止维护，改用 ExoPlayer 直接播放分离音视频
 
     // --- 6. Database (Room 数据库) ---
+    implementation("androidx.collection:collection:1.5.0")
+    implementation("androidx.paging:paging-common:3.4.2")
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
@@ -610,6 +611,7 @@ dependencies {
     testImplementation("app.cash.turbine:turbine:1.0.0")
     
     // --- 13. Android Instrumented Tests ---
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation(platform(libs.androidx.compose.bom))

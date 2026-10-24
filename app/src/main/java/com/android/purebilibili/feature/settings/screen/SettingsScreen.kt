@@ -48,7 +48,7 @@ import com.android.purebilibili.core.store.DEFAULT_CRASH_TRACKING_ENABLED
 import com.android.purebilibili.core.ui.AppSpacingTokens
 import com.android.purebilibili.core.theme.LocalSettingsLiquidGlassEnabled
 import com.android.purebilibili.core.ui.LocalBottomBarVisible
-import com.android.purebilibili.core.ui.LocalAnimatedVisibilityScope
+import com.android.purebilibili.core.ui.animation.LocalAppNavigationEntranceReady
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.store.AppNavigationSettings
 import com.android.purebilibili.core.util.AnalyticsHelper
@@ -114,7 +114,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val navigationTransitionRunning =
-        LocalAnimatedVisibilityScope.current?.transition?.isRunning == true
+        !LocalAppNavigationEntranceReady.current.value
     val rootEntranceStartWhen = shouldStartSettingsEntrance(
         entranceEnabled = rootEntranceEnabled,
         navigationTransitionRunning = navigationTransitionRunning,
@@ -123,54 +123,49 @@ fun SettingsScreen(
 
     // State Collection
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val privacyModeEnabled by SettingsManager.getPrivacyModeEnabled(context).collectAsStateWithLifecycle(initialValue = false)
-    val searchSuggestionsEnabled by SettingsManager.getSearchSuggestionsEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val privacyContentAuthenticationEnabled by SettingsManager
-        .getPrivacyContentAuthenticationEnabled(context)
+    val privacyModeEnabled by remember(context) { SettingsManager.getPrivacyModeEnabled(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val searchSuggestionsEnabled by remember(context) { SettingsManager.getSearchSuggestionsEnabled(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val privacyContentAuthenticationEnabled by remember(context) { SettingsManager.getPrivacyContentAuthenticationEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val crashTrackingEnabled by SettingsManager.getCrashTrackingEnabled(context)
+    val crashTrackingEnabled by remember(context) { SettingsManager.getCrashTrackingEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_CRASH_TRACKING_ENABLED)
-    val analyticsEnabled by SettingsManager.getAnalyticsEnabled(context)
+    val analyticsEnabled by remember(context) { SettingsManager.getAnalyticsEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = DEFAULT_ANALYTICS_ENABLED)
-    val enhancedDiagnosticLoggingEnabled by SettingsManager
-        .getEnhancedDiagnosticLoggingEnabled(context)
+    val enhancedDiagnosticLoggingEnabled by remember(context) { SettingsManager.getEnhancedDiagnosticLoggingEnabled(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val easterEggEnabled by SettingsManager.getEasterEggEnabled(context).collectAsStateWithLifecycle(initialValue = true)
-    val customDownloadPath by SettingsManager.getDownloadPath(context).collectAsStateWithLifecycle(initialValue = null)
-    val downloadExportTreeUri by SettingsManager.getDownloadExportTreeUri(context).collectAsStateWithLifecycle(initialValue = null)
-    val imageSaveTreeUri by SettingsManager.getImageSaveTreeUri(context).collectAsStateWithLifecycle(initialValue = null)
-    val autoCacheClearInterval by SettingsManager.getAutoCacheClearInterval(context)
+    val easterEggEnabled by remember(context) { SettingsManager.getEasterEggEnabled(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val customDownloadPath by remember(context) { SettingsManager.getDownloadPath(context) }.collectAsStateWithLifecycle(initialValue = null)
+    val downloadExportTreeUri by remember(context) { SettingsManager.getDownloadExportTreeUri(context) }.collectAsStateWithLifecycle(initialValue = null)
+    val imageSaveTreeUri by remember(context) { SettingsManager.getImageSaveTreeUri(context) }.collectAsStateWithLifecycle(initialValue = null)
+    val autoCacheClearInterval by remember(context) { SettingsManager.getAutoCacheClearInterval(context) }
         .collectAsStateWithLifecycle(initialValue = SettingsManager.AutoCacheClearInterval.NEVER)
-    val autoCacheClearThresholdGb by SettingsManager.getAutoCacheClearThresholdGb(context)
+    val autoCacheClearThresholdGb by remember(context) { SettingsManager.getAutoCacheClearThresholdGb(context) }
         .collectAsStateWithLifecycle(
             initialValue = SettingsManager.DEFAULT_AUTO_CACHE_CLEAR_THRESHOLD_GB
         )
-    val feedApiType by SettingsManager.getFeedApiType(context).collectAsStateWithLifecycle(initialValue = SettingsManager.FeedApiType.WEB
+    val feedApiType by remember(context) { SettingsManager.getFeedApiType(context) }.collectAsStateWithLifecycle(initialValue = SettingsManager.FeedApiType.WEB
     )
-    val autoCheckUpdateEnabled by SettingsManager.getAutoCheckAppUpdate(context)
+    val autoCheckUpdateEnabled by remember(context) { SettingsManager.getAutoCheckAppUpdate(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val appUpdateChannel by SettingsManager.getAppUpdateChannel(context)
+    val appUpdateChannel by remember(context) { SettingsManager.getAppUpdateChannel(context) }
         .collectAsStateWithLifecycle(initialValue = SettingsManager.AppUpdateChannel.STABLE)
-    val incrementalTimelineRefreshEnabled by SettingsManager.getIncrementalTimelineRefresh(context)
+    val incrementalTimelineRefreshEnabled by remember(context) { SettingsManager.getIncrementalTimelineRefresh(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val homeRefreshCount by SettingsManager.getHomeRefreshCount(context)
+    val homeRefreshCount by remember(context) { SettingsManager.getHomeRefreshCount(context) }
         .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.DEFAULT_HOME_REFRESH_COUNT)
-    val dynamicVisibleTabIds by SettingsManager.getDynamicTabVisibleTabs(context)
+    val dynamicVisibleTabIds by remember(context) { SettingsManager.getDynamicTabVisibleTabs(context) }
         .collectAsStateWithLifecycle(initialValue = defaultDynamicTabVisibleIds)
-    val dynamicTabOrder by SettingsManager.getDynamicTabOrder(context)
+    val dynamicTabOrder by remember(context) { SettingsManager.getDynamicTabOrder(context) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val dynamicImagePreviewTextVisible by SettingsManager.getDynamicImagePreviewTextVisible(context)
+    val dynamicImagePreviewTextVisible by remember(context) { SettingsManager.getDynamicImagePreviewTextVisible(context) }
         .collectAsStateWithLifecycle(initialValue = true)
-    val dynamicCommentPreviewVisible by com.android.purebilibili.core.store.home.DynamicSettingsStore
-        .observeCommentPreviewVisible(context)
+    val dynamicCommentPreviewVisible by remember(context) { com.android.purebilibili.core.store.home.DynamicSettingsStore.observeCommentPreviewVisible(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val dynamicDetailImageLayout by SettingsManager.getDynamicDetailImageLayout(context)
+    val dynamicDetailImageLayout by remember(context) { SettingsManager.getDynamicDetailImageLayout(context) }
         .collectAsStateWithLifecycle(initialValue = SettingsManager.peekDynamicDetailImageLayout(context))
-    val dynamicTopBarCollapseOnScroll by SettingsManager
-        .getDynamicTopBarCollapseOnScroll(context)
+    val dynamicTopBarCollapseOnScroll by remember(context) { SettingsManager.getDynamicTopBarCollapseOnScroll(context) }
         .collectAsStateWithLifecycle(initialValue = false)
-    val dynamicFeedLayoutMode by SettingsManager
-        .getDynamicFeedLayoutMode(context)
+    val dynamicFeedLayoutMode by remember(context) { SettingsManager.getDynamicFeedLayoutMode(context) }
         .collectAsStateWithLifecycle(initialValue = com.android.purebilibili.core.store.SettingsManager.DynamicFeedLayoutMode.WATERFALL)
 
     // Local UI State

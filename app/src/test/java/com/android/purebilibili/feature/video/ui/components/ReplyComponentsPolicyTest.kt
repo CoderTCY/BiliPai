@@ -41,10 +41,10 @@ class ReplyComponentsPolicyTest {
     @Test
     fun `author history action is present only when the host can navigate to a valid author`() {
         val withoutEntry = buildReplyActionSheetActions(
-            canDelete = false, canReport = false, canShare = false, canBlockUser = false,
+            canCheckFraud = false, canReport = false, canShare = false, canBlockUser = false,
         )
         val withEntry = buildReplyActionSheetActions(
-            canDelete = false, canReport = false, canShare = false, canBlockUser = false,
+            canCheckFraud = false, canReport = false, canShare = false, canBlockUser = false,
             canQueryAuthorHistory = true,
         )
         assertFalse(withoutEntry.contains(ReplyActionSheetAction.QUERY_AUTHOR_HISTORY))
@@ -353,16 +353,17 @@ class ReplyComponentsPolicyTest {
                 ReplyActionSheetAction.COPY_ALL,
                 ReplyActionSheetAction.FREE_COPY,
                 ReplyActionSheetAction.COPY_USERNAME,
+                ReplyActionSheetAction.TIME_STYLE,
                 ReplyActionSheetAction.SAVE,
                 ReplyActionSheetAction.SHARE,
                 ReplyActionSheetAction.REPLY,
                 ReplyActionSheetAction.BLOCK_USER,
                 ReplyActionSheetAction.REPORT,
-                ReplyActionSheetAction.TOGGLE_TOP,
-                ReplyActionSheetAction.DELETE
+                ReplyActionSheetAction.CHECK_FRAUD,
+                ReplyActionSheetAction.TOGGLE_TOP
             ),
             buildReplyActionSheetActions(
-                canDelete = true,
+                canCheckFraud = true,
                 canReport = true,
                 canShare = true,
                 canBlockUser = true,
@@ -375,7 +376,7 @@ class ReplyComponentsPolicyTest {
     fun `reply action sheet can omit username copy when disabled`() {
         assertFalse(
             buildReplyActionSheetActions(
-                canDelete = false,
+                canCheckFraud = false,
                 canReport = false,
                 canShare = false,
                 canBlockUser = false,
@@ -388,7 +389,7 @@ class ReplyComponentsPolicyTest {
     fun `reply action sheet policy hides share when api disables support share`() {
         assertFalse(
             buildReplyActionSheetActions(
-                canDelete = false,
+                canCheckFraud = false,
                 canReport = false,
                 canShare = false,
                 canBlockUser = false

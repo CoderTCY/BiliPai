@@ -1,5 +1,8 @@
 package com.android.purebilibili.feature.video.ui.components
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
 import com.android.purebilibili.core.ui.AppContentColors
 
 import com.android.purebilibili.core.ui.components.appSearchElasticPress
@@ -106,6 +109,11 @@ fun PagesSelector(
     isPlaying: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val selectionHaptic = rememberHapticFeedback()
+    val selectPage: (Int) -> Unit = { index ->
+        if (index in pages.indices && index != currentPageIndex) selectionHaptic(HapticType.LIGHT)
+        onPageSelect(index)
+    }
     if (pages.isEmpty()) return
 
     val sheetMaxHeight = episodeSheetMaxHeight()
@@ -276,7 +284,7 @@ fun PagesSelector(
                 visiblePageIndices = inlineVisibleIndices,
                 currentPageIndex = currentPageIndex,
                 coverUrl = coverUrl,
-                onPageSelect = onPageSelect,
+                onPageSelect = selectPage,
                 blockParentVerticalScroll = blockParentVerticalScroll,
                 bottomContentPaddingDp = if (forceGridMode) gridBottomPaddingDp else 12,
                 onResetFilters = { inlineQuery = ""; inlineGroupKey = null },
@@ -288,7 +296,7 @@ fun PagesSelector(
                 titles = pages.map { "P${it.page} · ${it.part.ifBlank { "第${it.page}P" }}" },
                 currentIndex = currentPageIndex,
                 isPlaying = isPlaying,
-                onSelect = onPageSelect,
+                onSelect = selectPage,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -359,7 +367,7 @@ fun PagesSelector(
                     currentPageIndex = currentPageIndex,
                     coverUrl = coverUrl,
                     onPageSelect = { index ->
-                        onPageSelect(index)
+                        selectPage(index)
                         showExpandedSheet = false
                     },
                     blockParentVerticalScroll = true,

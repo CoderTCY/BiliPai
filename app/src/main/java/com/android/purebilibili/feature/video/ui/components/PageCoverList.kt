@@ -61,7 +61,8 @@ internal fun PageCoverList(
     val nestedScrollConnection = rememberModalChildScrollConnection()
     LaunchedEffect(orderedIndices, currentPageIndex) {
         // Keep original page indices when sorting / filtering so selecting a row plays the right P.
-        if (currentPosition >= 0) listState.scrollToItem(currentPosition)
+        // 面板展开/换集时动画定位当前 P，与面板入场衔接；无当前项时回顶保持瞬时。
+        if (currentPosition >= 0) listState.animateScrollToItem(currentPosition)
         else if (orderedIndices.isNotEmpty()) listState.scrollToItem(0)
     }
     fun scrollTo(index: Int) {

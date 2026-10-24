@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
@@ -17,18 +16,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.android.purebilibili.core.store.SettingsManager
 import com.android.purebilibili.core.ui.LocalAppThemeConfig
-import com.android.purebilibili.core.ui.LocalComponentMotionEnabled
-import com.android.purebilibili.core.ui.LocalSystemReduceMotion
 import com.android.purebilibili.core.ui.blur.hazeSourceCompat
 import com.android.purebilibili.core.ui.blur.topSolidProgressiveFade
 import com.android.purebilibili.core.ui.components.AppLiquidGlassBackToTopButton
@@ -37,7 +37,6 @@ import com.android.purebilibili.data.model.response.ReplyItem
 import com.android.purebilibili.feature.dynamic.components.ImagePreviewSourceAnchor
 import com.android.purebilibili.feature.dynamic.components.ImagePreviewTextContent
 import com.android.purebilibili.feature.home.components.biliPaiProgressiveTopBlur
-import com.android.purebilibili.feature.video.screen.isVideoContentCommentListAtTop
 import com.android.purebilibili.feature.video.screen.VideoCommentTab
 import com.android.purebilibili.feature.video.screen.shouldUseLightweightCommentRendering
 import com.android.purebilibili.feature.video.ui.components.BottomInputBar
@@ -81,13 +80,12 @@ internal fun BangumiCommentPanel(
     val progressiveHeaderEnabled = themeConfig.progressiveTopBlurEnabled && !themeConfig.headerBlurEnabled
     val solidHeaderEnabled = themeConfig.progressiveTopFadeEnabled && !themeConfig.headerBlurEnabled
     val floatingHeader = liquidGlassEnabled || progressiveHeaderEnabled || solidHeaderEnabled
-    val motionEnabled = LocalComponentMotionEnabled.current && !LocalSystemReduceMotion.current
-    val listAtTop by remember(listState) {
-        derivedStateOf {
-            isVideoContentCommentListAtTop(
-                listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset
-            )
-        }
+    val density = LocalDensity.current
+    val commentHeaderHeightPx = remember(density, liquidGlassEnabled) {
+        mutableFloatStateOf(with(density) { 46.dp.toPx() })
+    }
+    val commentHeaderHeightProvider = remember(commentHeaderHeightPx) {
+        { commentHeaderHeightPx.floatValue }
     }
     val showBackToTop by remember(listState) {
         derivedStateOf {
@@ -170,15 +168,14 @@ internal fun BangumiCommentPanel(
                 showSortControlInHeader = true,
                 showHeader = !floatingHeader,
                 compactSortHeader = true,
-                floatingHeaderContentPadding = if (floatingHeader) 46.dp else 0.dp,
+                floatingHeaderContentPaddingPx = if (floatingHeader) commentHeaderHeightProvider else null,
                 onSearchClick = { showSearch = true },
             )
             if (floatingHeader) {
                 // 渐隐只覆盖列表采样层，标题和排序控件始终绘制在材质上方。
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 46.dp),
+                        .fillMaxWidth(),
                 ) {
                     Box(
                         modifier = Modifier.matchParentSize()
@@ -199,10 +196,14 @@ internal fun BangumiCommentPanel(
                         onSearchClick = { showSearch = true },
                         backdrop = backdrop,
                         liquidGlassEnabled = liquidGlassEnabled,
-                        listAtTop = listAtTop,
-                        motionEnabled = motionEnabled,
                         compactTitleTypography = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { size ->
+                                if (size.height > 0 && commentHeaderHeightPx.floatValue != size.height.toFloat()) {
+                                    commentHeaderHeightPx.floatValue = size.height.toFloat()
+                                }
+                            },
                     )
                 }
             }

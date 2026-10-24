@@ -382,7 +382,7 @@ fun calculateWindowSizeClass(
     val widthSizeClass = resolveWindowWidthSizeClass(adaptiveWindowSizeClass)
     val heightSizeClass = resolveWindowHeightSizeClass(adaptiveWindowSizeClass)
     
-    return remember(widthDp, heightDp, deviceWidthSizeClass) {
+    return remember(widthDp, heightDp, widthSizeClass, heightSizeClass, deviceWidthSizeClass) {
         WindowSizeClass(
             widthSizeClass = widthSizeClass,
             heightSizeClass = heightSizeClass,

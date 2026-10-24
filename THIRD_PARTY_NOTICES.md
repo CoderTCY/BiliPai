@@ -34,6 +34,18 @@ Source paths, preserved behavior, and modifications are recorded in
 UI components and liquid-glass indicator behavior reference
 [Miuix](https://github.com/compose-miuix-ui/miuix).
 
+## Player buffering animation asset
+
+The default player buffering animation
+`app/src/main/res/raw/bili_tv_buffering.webp` (animated bilibili TV mascot,
+88 frames) is imported unchanged from
+[PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus) (`assets/images/loading.webp`).
+Credit: PiliPlus contributors and the artwork's original authors.
+License: PiliPlus distributes its source under GPL-3.0; the asset is
+redistributed under this repository's [GPL-3.0 license](LICENSE).
+The dark radial scrim, text label and theme-tint presentation around the
+asset are BiliPai's own implementation.
+
 ## Retained third-party motion license
 
 The following MIT notice is retained for previously adapted motion code.

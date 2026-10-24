@@ -1,5 +1,6 @@
 package com.android.purebilibili.data.repository
 
+import androidx.collection.LruCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -23,7 +24,7 @@ class OnDemandRequestCache<Key : Any, Value>(
     }
 
     private val lock = Any()
-    private val cached = LinkedHashMap<Key, Cached<Value>>(16, 0.75f, true)
+    private val cached = LruCache<Key, Cached<Value>>(maxEntries)
     private val inFlight = mutableMapOf<Key, InFlight<Value>>()
     private var cacheGeneration = 0L
 
@@ -33,7 +34,7 @@ class OnDemandRequestCache<Key : Any, Value>(
     }
 
     fun peek(key: Key): Value? = synchronized(lock) {
-        val entry = cached[key] ?: return@synchronized null
+        val entry = cached.get(key) ?: return@synchronized null
         if (nowMs() >= entry.expiresAtMs) {
             cached.remove(key)
             null
@@ -43,7 +44,7 @@ class OnDemandRequestCache<Key : Any, Value>(
     suspend fun getOrLoad(key: Key, load: suspend () -> Value): Value {
         currentCoroutineContext().ensureActive()
         val request = synchronized(lock) {
-            val entry = cached[key]
+            val entry = cached.get(key)
             if (entry != null && nowMs() < entry.expiresAtMs) return entry.value
             cached.remove(key)
             val existing = inFlight[key]
@@ -55,10 +56,7 @@ class OnDemandRequestCache<Key : Any, Value>(
                     if (maxAgeMs > 0L && canCache(value)) {
                         synchronized(lock) {
                             if (inFlight[key] === created && cacheGeneration == generation) {
-                                cached[key] = Cached(value, nowMs() + maxAgeMs)
-                                while (cached.size > maxEntries) {
-                                    cached.remove(cached.keys.first())
-                                }
+                                cached.put(key, Cached(value, nowMs() + maxAgeMs))
                             }
                         }
                     }
@@ -93,14 +91,14 @@ class OnDemandRequestCache<Key : Any, Value>(
 
     fun clearCompleted() {
         synchronized(lock) {
-            cached.clear()
+            cached.evictAll()
             cacheGeneration += 1L
         }
     }
 
     fun invalidateWhere(matches: (Key) -> Boolean) {
         synchronized(lock) {
-            cached.keys.filter(matches).forEach { key -> cached.remove(key) }
+            cached.snapshot().keys.filter(matches).forEach { key -> cached.remove(key) }
             inFlight.keys.filter(matches).forEach { key ->
                 inFlight.remove(key)?.deferred?.cancel()
             }

@@ -1,10 +1,10 @@
 package com.android.purebilibili.feature.home
 
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.AppContentColors
 
 import com.android.purebilibili.core.ui.AppSpacingTokens
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -64,7 +64,7 @@ internal fun rememberHomeFeedSkeletonPulseState(): State<Float> {
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = HOME_FEED_SKELETON_PULSE_DURATION_MILLIS,
-                easing = FastOutSlowInEasing
+                easing = AppMotionEasing.M1Standard
             ),
             repeatMode = RepeatMode.Reverse
         ),

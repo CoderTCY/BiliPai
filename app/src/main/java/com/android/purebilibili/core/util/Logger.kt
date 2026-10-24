@@ -147,6 +147,22 @@ private fun diagnosticTimestampKey(entry: String): String? =
     entry.takeIf { it.length >= 25 && it[0] == '[' && it[24] == ']' }
         ?.substring(1, 24)
 
+/** Keep the last ten minutes before this exit, never the new process' startup entries. */
+internal fun selectLogsBeforeProcessExit(entries: List<String>, exitAtMillis: Long): List<String> {
+    val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
+        .apply { isLenient = false }
+    val beforeExit = entries.distinct().mapNotNull { entry ->
+        val time = diagnosticTimestampKey(entry)?.let { key ->
+            runCatching { formatter.parse(key)?.time }.getOrNull()
+        } ?: return@mapNotNull null
+        if (time in (exitAtMillis - 10 * 60_000L)..exitAtMillis) time to entry else null
+    }.sortedBy { it.first }
+    val launchIndex = beforeExit.indexOfLast { (_, entry) ->
+        entry.contains("I/StartupDiagnostics: stage=application_start,")
+    }
+    return beforeExit.drop(launchIndex.coerceAtLeast(0)).takeLast(120).map { it.second }
+}
+
 internal fun resolveLogArtifactDirsToClear(
     filesDir: File,
     cacheDir: File
@@ -171,7 +187,8 @@ internal fun buildCrashSnapshotContent(
     androidRelease: String,
     apiLevel: Int,
     buildType: String = "unknown",
-    buildCommit: String = "unknown"
+    buildCommit: String = "unknown",
+    previousProcessLogs: List<String> = emptyList(),
 ): String {
     val headerDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
     return buildString {
@@ -183,6 +200,10 @@ internal fun buildCrashSnapshotContent(
         appendLine("构建: $buildType / $buildCommit")
         appendLine("设备信息: $manufacturer $model")
         appendLine("Android版本: $androidRelease (API $apiLevel)")
+        if (throwable is AbnormalProcessExitException) {
+            appendLine("版本说明: 上方为采集本日志的应用版本；退出前版本以进程摘要为准")
+            appendLine("退出前进程摘要: ${throwable.processContext ?: "不可用（旧版本或系统未保留）"}")
+        }
         appendLine("异常类型: ${throwable.javaClass.simpleName}")
         appendLine("异常信息: ${sanitizeLogMessage(throwable.message.orEmpty())}")
         appendLine("========================================")
@@ -203,7 +224,12 @@ internal fun buildCrashSnapshotContent(
             throwable.stackTraceToString()
         }
         appendLine(sanitizeLogMessage(throwableText))
-        appendLine("----- Recent Logs -----")
+        if (throwable is AbnormalProcessExitException) {
+            appendLine("----- 崩溃前持久化日志（按退出时间筛选） -----")
+            if (previousProcessLogs.isEmpty()) appendLine("无可用记录；未落盘的末尾日志可能丢失")
+            previousProcessLogs.forEach { appendLine(sanitizeLogMessage(it)) }
+            appendLine("----- 当前重启日志（不代表崩溃前操作） -----")
+        } else appendLine("----- Recent Logs -----")
         entries.forEach { appendLine(it.format()) }
     }
 }
@@ -218,6 +244,7 @@ object Logger {
 
     /** Fixed startup stage names only; no links, account identifiers or user input. */
     fun recordStartupStage(stage: String) {
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.stage(stage)
         LogCollector.add(
             level = "I",
             tag = "StartupDiagnostics",
@@ -846,6 +873,17 @@ object LogCollector {
             entry.copy(message = sanitizeMessage(entry.message))
         }
         runCatching {
+            val exitTimestamp = (throwable as? AbnormalProcessExitException)?.exitTimestampMillis
+            val previousLogs = if (exitTimestamp != null) {
+                selectLogsBeforeProcessExit(
+                    listOf(resolveBasicLogFile(context.filesDir), resolveRuntimeLogFile(context.filesDir))
+                        .flatMap { file ->
+                            runCatching { if (file.isFile) file.readLines() else emptyList() }
+                                .getOrDefault(emptyList()).let(::groupDiagnosticLogLines)
+                        },
+                    exitTimestamp,
+                )
+            } else emptyList()
             val content = buildCrashSnapshotContent(
                 throwable = throwable,
                 entries = sanitizedEntries,
@@ -858,6 +896,7 @@ object LogCollector {
                 apiLevel = android.os.Build.VERSION.SDK_INT,
                 buildType = BuildConfig.BUILD_TYPE,
                 buildCommit = BuildConfig.BUILD_COMMIT_SHA,
+                previousProcessLogs = previousLogs,
             )
             val snapshotFile = resolveCrashSnapshotFile(context.filesDir)
             val rawTraceFile = resolveRawCrashTraceFile(context.filesDir)

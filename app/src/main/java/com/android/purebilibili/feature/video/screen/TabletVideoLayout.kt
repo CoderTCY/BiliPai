@@ -1,6 +1,11 @@
 // 文件路径: feature/video/screen/TabletVideoLayout.kt
 package com.android.purebilibili.feature.video.screen
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
+import com.android.purebilibili.feature.video.ui.components.RelatedVideoList
+
 import com.android.purebilibili.core.ui.AppContentColors
 
 import com.android.purebilibili.feature.video.ambient.PlayerAmbientLayout
@@ -127,6 +132,7 @@ internal enum class TabletSecondaryTab(val label: String) {
     INTRO("简介"),
     RELATED("相关推荐"),
     COLLECTION("合集"),
+    QUEUE("播放列表"),
     OWNER_UPLOADS("UP 投稿")
 }
 
@@ -278,6 +284,8 @@ internal fun TabletVideoLayout(
     videoNoteEnabled: Boolean = true,
     videoNoteDefaultCollapsed: Boolean = true,
     playerContent: (@Composable (Modifier) -> Unit)? = null,
+    externalQueueTitle: String = "播放列表",
+    externalQueueContent: (@Composable () -> Unit)? = null,
     transitionChromeAlphaProvider: () -> Float = { 1f },
 ) {
     val adaptiveInfo = com.android.purebilibili.core.util.LocalAppWindowAdaptiveInfo.current
@@ -583,6 +591,8 @@ internal fun TabletVideoLayout(
                             showUpBadge = showUpBadge,
                             showIdentityDecorations = commentMemberDecorationsEnabled,
                             onOpenBilibiliLink = onOpenBilibiliLink,
+                            externalQueueTitle = externalQueueTitle,
+                            externalQueueContent = externalQueueContent,
                             requestedTabName = requestedSecondaryTabName,
                             onRequestedTabConsumed = { requestedSecondaryTabName = null },
                             danmakuEnabled = danmakuChrome.enabled,
@@ -824,6 +834,8 @@ internal fun TabletSecondaryContent(
     onOpenBilibiliLink: ((String) -> Unit)?,
     requestedTabName: String?,
     onRequestedTabConsumed: () -> Unit,
+    externalQueueTitle: String = "播放列表",
+    externalQueueContent: (@Composable () -> Unit)? = null,
     fixedTab: TabletSecondaryTab? = null,
     introContent: (@Composable () -> Unit)? = null,
     applyStatusBarPadding: Boolean = true,
@@ -847,16 +859,21 @@ internal fun TabletSecondaryContent(
         success.info.owner.mid,
         fixedTab,
         introContent != null,
+        externalQueueContent != null,
         includeRelatedTab,
         includeOwnerUploadsTab,
         relatedTabFirst,
     ) {
         if (fixedTab != null) {
-            listOf(requireNotNull(fixedTab))
+            buildList {
+                add(requireNotNull(fixedTab))
+                if (externalQueueContent != null) add(TabletSecondaryTab.QUEUE)
+            }
         } else {
             buildList {
                 if (relatedTabFirst && includeRelatedTab) add(TabletSecondaryTab.RELATED)
                 add(TabletSecondaryTab.COMMENTS)
+                if (externalQueueContent != null) add(TabletSecondaryTab.QUEUE)
                 if (introContent != null) add(TabletSecondaryTab.INTRO)
                 if (!relatedTabFirst && includeRelatedTab) add(TabletSecondaryTab.RELATED)
                 if (success.info.ugc_season != null) add(TabletSecondaryTab.COLLECTION)
@@ -992,7 +1009,7 @@ internal fun TabletSecondaryContent(
                     selectSecondaryTab(index)
                     onPaneModeChange(TabletSecondaryPaneMode.COMPACT)
                 }) {
-                    AppText(tab.label)
+                    AppText(if (tab == TabletSecondaryTab.QUEUE) externalQueueTitle else tab.label)
                 }
             }
         }
@@ -1013,7 +1030,7 @@ internal fun TabletSecondaryContent(
             )
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (fixedTab == null && tabs.size > 1) {
+        if (tabs.size > 1) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1021,7 +1038,7 @@ internal fun TabletSecondaryContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TabletSecondaryLiquidTabRow(
-                    labels = tabs.map { it.label },
+                    labels = tabs.map { if (it == TabletSecondaryTab.QUEUE) externalQueueTitle else it.label },
                     selectedIndex = pagerState.currentPage,
                     onSelected = ::selectSecondaryTab,
                     indicatorPositionProvider = {
@@ -1067,7 +1084,7 @@ internal fun TabletSecondaryContent(
             state = pagerState,
             userScrollEnabled = shouldEnableVideoContentHorizontalPagerSwipe(
                         currentPage = pagerState.currentPage,
-                        commentPageIndex = 0,
+                        commentPageIndex = resolveTabletCommentTabIndex(tabs),
                         isPagerScrollInProgress = pagerState.isScrollInProgress,
                     ),
             modifier = Modifier
@@ -1405,11 +1422,12 @@ internal fun TabletSecondaryContent(
                     }
                     val relatedVideoCardLayout = rememberRelatedVideoCardLayout()
                     val relatedListState = rememberLazyListState()
-                    LazyColumn(
+                    RelatedVideoList(
+                        cardLayout = relatedVideoCardLayout,
                         modifier = Modifier.fillMaxSize(),
                         state = relatedListState,
                         contentPadding = PaddingValues(8.dp)
-                    ) {
+                    ) { cardPresentation ->
                             val relatedRows = chunkRelatedVideosForHomeStyleGrid(visibleRelatedVideos)
                             if (success.relatedLoadState == VideoPlaybackUiState.RelatedLoadState.LOADING) {
                                 item(key = "tablet_related_loading") {
@@ -1449,6 +1467,7 @@ internal fun TabletSecondaryContent(
                                     RelatedVideoGridRow(
                                         videos = row,
                                         cardLayout = relatedVideoCardLayout,
+                                        cardPresentation = cardPresentation,
                                         followingMids = success.followingMids,
                                         showUpBadge = showUpBadge,
                                         onVideoClick = { video ->
@@ -1467,6 +1486,10 @@ internal fun TabletSecondaryContent(
                     }
                 }
 
+                TabletSecondaryTab.QUEUE -> {
+                    externalQueueContent?.invoke()
+                }
+
                 TabletSecondaryTab.COLLECTION -> {
                     val season = success.info.ugc_season
                     if (season != null) {
@@ -1474,6 +1497,7 @@ internal fun TabletSecondaryContent(
                             ugcSeason = season,
                             currentBvid = success.info.bvid,
                             currentCid = success.info.cid,
+                            currentAid = success.info.aid,
                             onEpisodeClick = { episode ->
                                 onRelatedVideoClick(
                                     episode.bvid,
@@ -1500,8 +1524,10 @@ private fun TabletCollectionPane(
     ugcSeason: com.android.purebilibili.data.model.response.UgcSeason,
     currentBvid: String,
     currentCid: Long,
+    currentAid: Long,
     onEpisodeClick: (com.android.purebilibili.data.model.response.UgcEpisode) -> Unit
 ) {
+    val selectionHaptic = rememberHapticFeedback()
     val episodes = remember(ugcSeason.sections) { ugcSeason.sections.flatMap { it.episodes } }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1509,22 +1535,40 @@ private fun TabletCollectionPane(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
-            AppText(
-                text = ugcSeason.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = AppContentColors.primaryText()
-            )
-            AppText(
-                text = "共 ${episodes.size} 个视频",
-                style = MaterialTheme.typography.bodySmall,
-                color = AppContentColors.secondaryText()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    AppText(
+                        text = ugcSeason.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = AppContentColors.primaryText(),
+                    )
+                    AppText(
+                        text = "共 ${episodes.size} 个视频",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppContentColors.secondaryText(),
+                    )
+                }
+                com.android.purebilibili.feature.video.ui.components.CollectionSubscriptionButton(
+                    collectionId = ugcSeason.id,
+                    currentBvid = currentBvid,
+                    currentAid = currentAid,
+                    fontSize = MaterialTheme.typography.labelMedium.fontSize,
+                )
+            }
         }
         items(episodes, key = { it.id }) { episode ->
             val isCurrent = isCurrentUgcEpisode(currentBvid, currentCid, episode)
             AppSingleChoiceRow(
                 selected = isCurrent,
-                onClick = { if (!isCurrent) onEpisodeClick(episode) },
+                onClick = {
+                    if (!isCurrent) {
+                        selectionHaptic(HapticType.LIGHT)
+                        onEpisodeClick(episode)
+                    }
+                },
                 shape = AppShapes.container(ContainerLevel.Card),
                 modifier = Modifier.fillMaxWidth()
             ) {

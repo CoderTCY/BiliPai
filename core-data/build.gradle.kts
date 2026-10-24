@@ -16,6 +16,8 @@ android {
 }
 
 dependencies {
+    implementation("androidx.collection:collection:1.5.0")
+    implementation("com.google.protobuf:protobuf-javalite:4.28.3")
     api(project(":network-core"))
     api("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")

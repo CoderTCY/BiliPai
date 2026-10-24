@@ -83,7 +83,7 @@ class HorizontalVideoCardLayoutPolicyTest {
         )
         assertFalse(
             source.substringAfter("if (scrollLitePolicy.showSecondaryStatsRow)")
-                .substringBefore("VideoCardOwnerMetadata(")
+                .substringBefore("VideoCardDurationPublishRow(")
                 .contains("overflow = TextOverflow.Ellipsis")
         )
         assertTrue(source.contains("maxLines = Int.MAX_VALUE"))

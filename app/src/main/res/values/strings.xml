@@ -1,4 +1,5 @@
 <resources>
+    <string name="mini_player_notification_channel">小窗播放</string>
     <string name="app_name">BiliPai</string>
 
     <string name="common_back">返回</string>
@@ -319,7 +320,7 @@
     <string name="animation_section_maid">蓝雪女仆</string>
     <string name="animation_maid_summary">关闭后隐藏女仆动画和静态图</string>
     <string name="animation_card_entrance_summary">打开首页时卡片依次淡入</string>
-    <string name="animation_card_transition_summary">封面和标题平滑过渡到详情页</string>
+    <string name="animation_card_transition_summary">封面和标题平滑过渡到详情页；关闭后使用全局页面动画</string>
     <string name="animation_related_transition_on">点开相关推荐时，卡片展开为视频页</string>
     <string name="animation_related_transition_off">点开相关推荐时，使用普通页面动画</string>
     <string name="animation_live_transition_summary">过渡时保留正在播放的画面</string>
@@ -506,7 +507,6 @@
     <string name="settings_search_history_clear_all">清空全部</string>
     <string name="settings_search_history_empty">暂无搜索历史，搜索设置功能后会显示在这里</string>
     <string name="settings_search_history_delete">删除搜索历史：%1$s</string>
-    <string name="settings_search_load_more">加载更多</string>
     <string name="settings_search_legacy_001_title">界面与主题</string>
     <string name="settings_search_legacy_001_summary">界面风格、颜色、字体和启动画面</string>
     <string name="settings_search_legacy_002_title">首页与推荐</string>
@@ -830,7 +830,7 @@
     <string name="appearance_font_imported_coverage">已导入字体：%1$s（%2$s）</string>
     <string name="appearance_seed_palette_current">当前 %1$s：%2$s</string>
     <string name="appearance_home_compact_stats_on">播放量和弹幕显示在封面底部</string>
-    <string name="appearance_home_compact_stats_off">默认显示在标题下方</string>
+    <string name="appearance_home_compact_stats_off">显示在 UP 主下方</string>
     <string name="appearance_home_duration_subtitle">选择视频时长的显示方式</string>
     <string name="appearance_home_publish_on">首页视频卡片显示发布时间</string>
     <string name="appearance_home_publish_off">首页视频卡片不显示发布时间</string>
@@ -841,8 +841,8 @@
     <string name="appearance_home_refresh_tip_on">推荐流刷新后保留旧内容，并在刷新位置显示提示</string>
     <string name="appearance_home_refresh_tip_off">关闭后刷新直接替换推荐内容，不显示刷新位置提示</string>
     <string name="appearance_home_refresh_undo">刷新推荐流后显示撤销按钮，可恢复刷新前的内容</string>
-    <string name="appearance_home_online_on">在视频卡片和视频页显示“xx 人正在看”</string>
-    <string name="appearance_home_online_off">关闭后隐藏卡片和视频页的同时观看人数</string>
+    <string name="appearance_home_online_on">在视频卡片显示“xx 人正在看”，不影响视频页</string>
+    <string name="appearance_home_online_off">关闭后隐藏卡片观看人数，不影响视频页</string>
     <string name="appearance_home_wallpaper_section">首页壁纸</string>
     <string name="appearance_home_wallpaper_choose">选择首页壁纸</string>
     <string name="appearance_home_wallpaper_dedicated">已单独设置首页壁纸</string>

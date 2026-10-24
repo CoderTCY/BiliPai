@@ -163,6 +163,7 @@ class VideoPlayerCoverPolicyTest {
             shouldKeepCoverForManualStart = false,
             hasPersistedRenderedFirstFrame = false,
             preserveCurrentFrameOnFullscreenChange = true,
+            hasCurrentOutputFrame = true,
         )
 
         assertTrue(fullscreenSwitch.isFirstFrameRendered)
@@ -175,6 +176,45 @@ class VideoPlayerCoverPolicyTest {
                 hasStartedSmoothReveal = fullscreenSwitch.hasStartedSmoothReveal,
             )
         )
+    }
+
+    @Test
+    fun coverBootstrap_fullscreenIntentCannotInventAFrameForANewOutput() {
+        val newOutput = resolveVideoPlayerCoverBootstrapState(
+            forceCoverDuringReturnAnimation = false,
+            shouldKeepCoverForManualStart = false,
+            hasPersistedRenderedFirstFrame = false,
+            preserveCurrentFrameOnFullscreenChange = true,
+            hasCurrentOutputFrame = false,
+        )
+        assertFalse(newOutput.isFirstFrameRendered)
+        assertFalse(newOutput.hasStartedSmoothReveal)
+
+        val historicalFrame = resolveVideoPlayerCoverBootstrapState(
+            forceCoverDuringReturnAnimation = false,
+            shouldKeepCoverForManualStart = false,
+            hasPersistedRenderedFirstFrame = true,
+            preserveCurrentFrameOnFullscreenChange = true,
+            hasCurrentOutputFrame = false,
+        )
+        // 历史首帧可以作为封面揭开的种子，但不能直接跳过揭开和绘制边界。
+        assertTrue(historicalFrame.isFirstFrameRendered)
+        assertFalse(historicalFrame.hasStartedSmoothReveal)
+    }
+
+    @Test
+    fun coverBootstrap_currentOutputDoesNotOverrideForcedOrManualCover() {
+        for ((forced, manual) in listOf(true to false, false to true)) {
+            val state = resolveVideoPlayerCoverBootstrapState(
+                forceCoverDuringReturnAnimation = forced,
+                shouldKeepCoverForManualStart = manual,
+                hasPersistedRenderedFirstFrame = true,
+                preserveCurrentFrameOnFullscreenChange = true,
+                hasCurrentOutputFrame = true,
+            )
+            assertFalse(state.isFirstFrameRendered)
+            assertFalse(state.hasStartedSmoothReveal)
+        }
     }
 
     @Test

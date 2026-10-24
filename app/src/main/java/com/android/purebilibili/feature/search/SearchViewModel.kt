@@ -21,11 +21,9 @@ import com.android.purebilibili.data.repository.SearchDuration
 import com.android.purebilibili.data.repository.SearchLiveOrder
 import com.android.purebilibili.data.repository.SearchArticleCategory
 import com.android.purebilibili.data.repository.SearchPhotoCategory
-import com.android.purebilibili.data.repository.mergeSearchPageResults
 import com.android.purebilibili.data.repository.SearchOrderSort
 import com.android.purebilibili.data.repository.SearchUpOrder
 import com.android.purebilibili.data.repository.SearchUserType
-import com.android.purebilibili.data.repository.shouldApplySearchResult
 import com.android.purebilibili.data.repository.toggleSearchDurationSelection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -221,8 +219,9 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     private var discoverSettingsLoaded = false
     private var discoverRequestVersion = 0L
     private var suggestJob: Job? = null
-    private var activeSearchJob: Job? = null
-    private var activeLoadMoreJob: Job? = null
+    private val pagingSessions = mutableMapOf<SearchType, SearchPagingSession>()
+    private val pagingGenerations = mutableMapOf<SearchType, Long>()
+    private val pagingJobs = mutableMapOf<SearchType, Job>()
     private var activeSearchSessionId: Long = 0L
     private var blockedUpObserverStarted = false
     private var landingBootstrapStarted = false
@@ -358,8 +357,10 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun exitResultsToLanding() {
         suggestJob?.cancel()
-        activeSearchJob?.cancel()
-        activeLoadMoreJob?.cancel()
+        pagingJobs.values.forEach { it.cancel() }
+        pagingJobs.clear()
+        pagingSessions.clear()
+        pagingGenerations.clear()
         _uiState.update {
             it.copy(
                 showResults = false,
@@ -416,6 +417,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.value = beforeSwitch
                 .withCurrentSearchResultPageCached()
                 .withSearchResultPageMirrored(type, cachedState)
+                .copy(totalResults = beforeSwitch.searchTypeCounts[type] ?: -1)
             return
         }
 
@@ -571,8 +573,14 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.value.submittedQuery.trim() != normalizedKeyword
         val searchSessionId = activeSearchSessionId + 1L
         activeSearchSessionId = searchSessionId
-        activeSearchJob?.cancel()
-        activeLoadMoreJob?.cancel()
+        if (shouldClearCachedPages) {
+            pagingJobs.values.forEach { it.cancel() }
+            pagingJobs.clear()
+            pagingSessions.clear()
+            pagingGenerations.clear()
+        }
+        pagingJobs.remove(searchType)?.cancel()
+        pagingGenerations[searchType] = searchSessionId
 
         _uiState.update {
             it.copy(
@@ -605,739 +613,131 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         if (updateDraft) saveHistory(normalizedKeyword)
         com.android.purebilibili.core.util.AnalyticsHelper.logSearch(normalizedKeyword)
 
-        activeSearchJob = viewModelScope.launch {
-            when (searchType) {
-                SearchType.ALL -> {
-                    val filters = _uiState.value
-                    SearchRepository.searchAllPage(
-                        keyword = normalizedKeyword,
-                        page = 1,
-                        order = filters.searchOrder,
-                        durations = filters.searchDurations,
-                        tids = filters.videoTid,
-                        pubBegin = filters.pubBegin,
-                        pubEnd = filters.pubEnd,
+        val filters = _uiState.value
+        val session = SearchPagingSession(
+            loadPage = { page -> loadSearchChunk(filters, page) },
+            onChanged = { pages, loads ->
+                if (pagingGenerations[searchType] == searchSessionId &&
+                    _uiState.value.submittedQuery == normalizedKeyword && _uiState.value.showResults
+                ) {
+                    val last = pages.lastOrNull()
+                    val refresh = loads?.refresh
+                    val append = loads?.append
+                    val merged = mergeSearchChunks(pages).copy(
+                        query = normalizedKeyword,
+                        isSearching = refresh is androidx.paging.LoadState.Loading,
+                        isLoadingMore = append is androidx.paging.LoadState.Loading,
+                        error = if (refresh is androidx.paging.LoadState.Error) refresh.error.message ?: "搜索失败" else null,
+                        loadMoreError = if (append is androidx.paging.LoadState.Error) append.error.message ?: "加载更多失败" else null,
                     )
-                        .onSuccess { aggregate ->
-                            if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                            val nativeFiltered = aggregate.videos.filter { it.owner.mid !in blockedMids }
-                            val builtinFiltered = com.android.purebilibili.core.plugin.PluginManager.filterFeedItems(nativeFiltered, feedKind = FeedKind.SEARCH)
-                            val filteredVideos = com.android.purebilibili.core.plugin.json.JsonPluginManager.filterVideos(builtinFiltered)
-                            val filteredUps = aggregate.ups
-                                .filter { it.mid !in blockedMids }
-                                .map { up -> up.copy(res = up.res?.filterNot { video -> video.mid in blockedMids }) }
-                            val total = aggregate.pageInfo.totalResults
-                            _uiState.update {
-                                it.copy(
-                                    isSearching = false,
-                                    error = null,
-                                    searchResults = filteredVideos,
-                                    upResults = filteredUps,
-                                    bangumiResults = aggregate.bangumi,
-                                    liveResults = emptyList(), liveUserResults = emptyList(),
-                                    articleResults = emptyList(), topicResults = emptyList(), photoResults = emptyList(),
-                                    currentPage = aggregate.pageInfo.currentPage,
-                                    totalResults = total,
-                                    searchTypeCounts = it.searchTypeCounts + (SearchType.ALL to total),
-                                    totalPages = aggregate.pageInfo.totalPages,
-                                    hasMoreResults = aggregate.pageInfo.hasMore,
-                                    emptyStateReason = resolveSearchEmptyStateReason(
-                                        rawResultCount = aggregate.videos.size + aggregate.ups.size + aggregate.bangumi.size,
-                                        visibleResultCount = filteredVideos.size + filteredUps.size + aggregate.bangumi.size
-                                    )
-                                )
-                            }
-                        }
-                        .onFailure { error ->
-                            if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                            _uiState.update { it.copy(isSearching = false, error = error.message ?: "搜索失败") }
-                        }
-                }
-                SearchType.VIDEO -> {
-                    val order = _uiState.value.searchOrder
-                    val durations = _uiState.value.searchDurations
-                    val videoTid = _uiState.value.videoTid
-                    val pubBegin = _uiState.value.pubBegin
-                    val pubEnd = _uiState.value.pubEnd
-                    val result = SearchRepository.searchWithDurations(
-                        keyword = normalizedKeyword,
-                        order = order,
-                        durations = durations,
-                        tids = videoTid,
-                        page = 1,
-                        pubBegin = pubBegin,
-                        pubEnd = pubEnd
-                    )
-                    result.onSuccess { (videos, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        val nativeFiltered = videos.filter { it.owner.mid !in blockedMids }
-                        val builtinFiltered = com.android.purebilibili.core.plugin.PluginManager.filterFeedItems(nativeFiltered, feedKind = FeedKind.SEARCH)
-                        val filteredVideos = com.android.purebilibili.core.plugin.json.JsonPluginManager.filterVideos(builtinFiltered)
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                searchResults = filteredVideos,
-                                upResults = emptyList(),
-                                bangumiResults = emptyList(),
-                                liveResults = emptyList(),
-                                liveUserResults = emptyList(),
-                                articleResults = emptyList(),
-                                topicResults = emptyList(),
-                                photoResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = videos.size,
-                                    visibleResultCount = filteredVideos.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
+                    _uiState.update { current ->
+                        val cached = current.withSearchResultPage(searchType, merged)
+                        val counted = if (last == null) cached else cached.copy(
+                            searchTypeCounts = cached.searchTypeCounts + (searchType to last.info.totalResults))
+                        if (current.searchType == searchType) counted.withSearchResultPageMirrored(searchType, merged)
+                            .copy(totalResults = last?.info?.totalResults ?: -1)
+                        else counted
                     }
                 }
-                SearchType.UP -> {
-                    val result = SearchRepository.searchUp(
-                        keyword = normalizedKeyword,
-                        page = 1,
-                        order = _uiState.value.upOrder,
-                        orderSort = _uiState.value.upOrderSort,
-                        userType = _uiState.value.upUserType
-                    )
-                    result.onSuccess { (ups, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        val filteredUps = ups.filter { it.mid !in blockedMids }
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                upResults = filteredUps,
-                                searchResults = emptyList(),
-                                bangumiResults = emptyList(),
-                                liveResults = emptyList(),
-                                liveUserResults = emptyList(),
-                                articleResults = emptyList(),
-                                topicResults = emptyList(),
-                                photoResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = ups.size,
-                                    visibleResultCount = filteredUps.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
-                    }
-                }
-                SearchType.BANGUMI -> {
-                    val result = SearchRepository.searchBangumi(normalizedKeyword, page = 1)
-                    result.onSuccess { (bangumis, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                bangumiResults = bangumis,
-                                searchResults = emptyList(),
-                                upResults = emptyList(),
-                                liveResults = emptyList(),
-                                liveUserResults = emptyList(),
-                                articleResults = emptyList(),
-                                topicResults = emptyList(),
-                                photoResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = bangumis.size,
-                                    visibleResultCount = bangumis.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
-                    }
-                }
-                SearchType.MEDIA_FT -> {
-                    val result = SearchRepository.searchMediaFt(normalizedKeyword, page = 1)
-                    result.onSuccess { (items, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                bangumiResults = items,
-                                searchResults = emptyList(),
-                                upResults = emptyList(),
-                                liveResults = emptyList(),
-                                liveUserResults = emptyList(),
-                                articleResults = emptyList(),
-                                topicResults = emptyList(),
-                                photoResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = items.size,
-                                    visibleResultCount = items.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
-                    }
-                }
-                SearchType.LIVE -> {
-                    val result = SearchRepository.searchLive(
-                        keyword = normalizedKeyword,
-                        page = 1,
-                        order = _uiState.value.liveOrder
-                    )
-                    result.onSuccess { (liveRooms, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        val filteredLive = liveRooms.filter { it.uid !in blockedMids }
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                liveResults = filteredLive,
-                                searchResults = emptyList(),
-                                upResults = emptyList(),
-                                bangumiResults = emptyList(),
-                                liveUserResults = emptyList(),
-                                articleResults = emptyList(),
-                                topicResults = emptyList(),
-                                photoResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = liveRooms.size,
-                                    visibleResultCount = filteredLive.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
-                    }
-                }
-                SearchType.LIVE_USER -> {
-                    val result = SearchRepository.searchLiveUser(
-                        keyword = normalizedKeyword,
-                        page = 1
-                    )
-                    result.onSuccess { (liveUsers, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        val filteredLiveUsers = liveUsers.filter { it.uid !in blockedMids }
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                liveUserResults = filteredLiveUsers,
-                                searchResults = emptyList(),
-                                upResults = emptyList(),
-                                bangumiResults = emptyList(),
-                                liveResults = emptyList(),
-                                articleResults = emptyList(),
-                                topicResults = emptyList(),
-                                photoResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = liveUsers.size,
-                                    visibleResultCount = filteredLiveUsers.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
-                    }
-                }
-                SearchType.ARTICLE -> {
-                    val result = SearchRepository.searchArticle(
-                        keyword = normalizedKeyword,
-                        page = 1,
-                        order = _uiState.value.articleOrder,
-                        categoryId = _uiState.value.articleCategory.value
-                    )
-                    result.onSuccess { (articles, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                articleResults = articles,
-                                searchResults = emptyList(),
-                                upResults = emptyList(),
-                                bangumiResults = emptyList(),
-                                liveResults = emptyList(),
-                                liveUserResults = emptyList(),
-                                topicResults = emptyList(),
-                                photoResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = articles.size,
-                                    visibleResultCount = articles.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
-                    }
-                }
-                SearchType.TOPIC -> {
-                    val result = SearchRepository.searchTopic(keyword = normalizedKeyword, page = 1)
-                    result.onSuccess { (topics, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                topicResults = topics,
-                                searchResults = emptyList(),
-                                upResults = emptyList(),
-                                bangumiResults = emptyList(),
-                                liveResults = emptyList(),
-                                liveUserResults = emptyList(),
-                                articleResults = emptyList(),
-                                photoResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = topics.size,
-                                    visibleResultCount = topics.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
-                    }
-                }
-                SearchType.PHOTO -> {
-                    val result = SearchRepository.searchPhoto(
-                        keyword = normalizedKeyword,
-                        page = 1,
-                        order = _uiState.value.photoOrder,
-                        categoryId = _uiState.value.photoCategory.value
-                    )
-                    result.onSuccess { (photos, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = null,
-                                loadMoreError = null,
-                                photoResults = photos,
-                                searchResults = emptyList(),
-                                upResults = emptyList(),
-                                bangumiResults = emptyList(),
-                                liveResults = emptyList(),
-                                liveUserResults = emptyList(),
-                                articleResults = emptyList(),
-                                topicResults = emptyList(),
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore,
-                                emptyStateReason = resolveSearchEmptyStateReason(
-                                    rawResultCount = photos.size,
-                                    visibleResultCount = photos.size
-                                )
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, normalizedKeyword, _uiState.value.submittedQuery, searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update {
-                            it.copy(
-                                isSearching = false,
-                                error = e.message ?: "搜索失败",
-                                emptyStateReason = SearchEmptyStateReason.NONE
-                            )
-                        }
-                    }
-                }
+            },
+        )
+        pagingSessions[searchType] = session
+        pagingJobs[searchType] = viewModelScope.launch { session.run() }
+    }
+
+    fun loadMoreResults() {
+        ensureBlockedUpObserver()
+        val state = _uiState.value
+        if (!state.isSearching && !state.isLoadingMore && state.submittedQuery.isNotBlank()) {
+            pagingSessions[state.searchType]?.loadMore()
+        }
+    }
+
+
+    private suspend fun loadSearchChunk(filters: SearchUiState, number: Int): SearchPageChunk {
+        val keyword = filters.submittedQuery
+        val empty = SearchResultPageUiState(query = keyword)
+        suspend fun videos(items: List<VideoItem>): List<VideoItem> {
+            val native = items.filter { it.owner.mid !in blockedMids }
+            val builtin = com.android.purebilibili.core.plugin.PluginManager.filterFeedItems(native, feedKind = FeedKind.SEARCH)
+            return com.android.purebilibili.core.plugin.json.JsonPluginManager.filterVideos(builtin)
+        }
+        fun chunk(page: SearchResultPageUiState, info: SearchRepository.SearchPageInfo, rawCount: Int): SearchPageChunk {
+            val visible = page.searchResults.size + page.upResults.size + page.bangumiResults.size +
+                page.liveResults.size + page.liveUserResults.size + page.articleResults.size +
+                page.topicResults.size + page.photoResults.size
+            return SearchPageChunk(page.copy(currentPage = info.currentPage, totalPages = info.totalPages,
+                hasMoreResults = info.hasMore, totalCount = visible,
+                emptyStateReason = resolveSearchEmptyStateReason(rawCount, visible)), info)
+        }
+        return when (filters.searchType) {
+            SearchType.ALL -> {
+                val result = SearchRepository.searchAllPage(keyword = keyword, page = number,
+                    order = filters.searchOrder, durations = filters.searchDurations, tids = filters.videoTid,
+                    pubBegin = filters.pubBegin, pubEnd = filters.pubEnd).getOrThrow()
+                chunk(empty.copy(searchResults = videos(result.videos),
+                    upResults = result.ups.filter { it.mid !in blockedMids }.map { up ->
+                        up.copy(res = up.res?.filterNot { it.mid in blockedMids }) },
+                    bangumiResults = result.bangumi), result.pageInfo,
+                    result.videos.size + result.ups.size + result.bangumi.size)
+            }
+            SearchType.VIDEO -> {
+                val (items, info) = SearchRepository.searchWithDurations(keyword = keyword, page = number, order = filters.searchOrder, durations = filters.searchDurations, tids = filters.videoTid, pubBegin = filters.pubBegin, pubEnd = filters.pubEnd).getOrThrow()
+                chunk(empty.copy(searchResults = videos(items)), info, items.size)
+            }
+            SearchType.UP -> {
+                val (items, info) = SearchRepository.searchUp(keyword = keyword, page = number, order = filters.upOrder, orderSort = filters.upOrderSort, userType = filters.upUserType).getOrThrow()
+                chunk(empty.copy(upResults = items.filter { it.mid !in blockedMids }), info, items.size)
+            }
+            SearchType.BANGUMI -> {
+                val (items, info) = SearchRepository.searchBangumi(keyword, page = number).getOrThrow()
+                chunk(empty.copy(bangumiResults = items), info, items.size)
+            }
+            SearchType.MEDIA_FT -> {
+                val (items, info) = SearchRepository.searchMediaFt(keyword, page = number).getOrThrow()
+                chunk(empty.copy(bangumiResults = items), info, items.size)
+            }
+            SearchType.LIVE -> {
+                val (items, info) = SearchRepository.searchLive(keyword = keyword, page = number, order = filters.liveOrder).getOrThrow()
+                chunk(empty.copy(liveResults = items.filter { it.uid !in blockedMids }), info, items.size)
+            }
+            SearchType.LIVE_USER -> {
+                val (items, info) = SearchRepository.searchLiveUser(keyword = keyword, page = number).getOrThrow()
+                chunk(empty.copy(liveUserResults = items.filter { it.uid !in blockedMids }), info, items.size)
+            }
+            SearchType.ARTICLE -> {
+                val (items, info) = SearchRepository.searchArticle(keyword = keyword, page = number, order = filters.articleOrder, categoryId = filters.articleCategory.value).getOrThrow()
+                chunk(empty.copy(articleResults = items), info, items.size)
+            }
+            SearchType.TOPIC -> {
+                val (items, info) = SearchRepository.searchTopic(keyword = keyword, page = number).getOrThrow()
+                chunk(empty.copy(topicResults = items), info, items.size)
+            }
+            SearchType.PHOTO -> {
+                val (items, info) = SearchRepository.searchPhoto(keyword = keyword, page = number, order = filters.photoOrder, categoryId = filters.photoCategory.value).getOrThrow()
+                chunk(empty.copy(photoResults = items), info, items.size)
             }
         }
     }
-    
-    //  [新增] 加载更多搜索结果
-    fun loadMoreResults() {
-        val state = _uiState.value
-        ensureBlockedUpObserver()
-        
-        if (!state.hasMoreResults || state.isLoadingMore || state.isSearching || state.submittedQuery.isBlank()) {
-            return
-        }
-        
-        _uiState.update { it.withLoadMoreStarted() }
-        val searchSessionId = activeSearchSessionId
-        val nextPage = state.currentPage + 1
-        
-        activeLoadMoreJob?.cancel()
-        activeLoadMoreJob = viewModelScope.launch {
-            when (state.searchType) {
-                SearchType.ALL -> {
-                    SearchRepository.searchAllPage(
-                        keyword = state.submittedQuery,
-                        page = nextPage,
-                        order = state.searchOrder,
-                        durations = state.searchDurations,
-                        tids = state.videoTid,
-                        pubBegin = state.pubBegin,
-                        pubEnd = state.pubEnd,
-                    )
-                        .onSuccess { aggregate ->
-                            if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                            val nativeFiltered = aggregate.videos.filter { it.owner.mid !in blockedMids }
-                            val builtinFiltered = com.android.purebilibili.core.plugin.PluginManager.filterFeedItems(nativeFiltered, feedKind = FeedKind.SEARCH)
-                            val filteredVideos = com.android.purebilibili.core.plugin.json.JsonPluginManager.filterVideos(builtinFiltered)
-                            val filteredUps = aggregate.ups
-                                .filter { it.mid !in blockedMids }
-                                .map { up -> up.copy(res = up.res?.filterNot { video -> video.mid in blockedMids }) }
-                            _uiState.update {
-                                it.copy(
-                                    isLoadingMore = false,
-                                    loadMoreError = null,
-                                    searchResults = mergeSearchPageResults(it.searchResults, filteredVideos) { video -> video.bvid },
-                                    upResults = mergeSearchPageResults(it.upResults, filteredUps) { up -> up.mid },
-                                    bangumiResults = mergeSearchPageResults(it.bangumiResults, aggregate.bangumi) { item -> item.seasonId },
-                                    currentPage = aggregate.pageInfo.currentPage,
-                                    totalResults = aggregate.pageInfo.totalResults,
-                                    searchTypeCounts = it.searchTypeCounts + (SearchType.ALL to aggregate.pageInfo.totalResults),
-                                    totalPages = aggregate.pageInfo.totalPages,
-                                    hasMoreResults = aggregate.pageInfo.hasMore
-                                )
-                            }
-                        }
-                        .onFailure { error ->
-                            if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                            _uiState.update { it.copy(isLoadingMore = false, loadMoreError = error.message ?: "加载失败") }
-                        }
-                }
-                SearchType.VIDEO -> {
-                    val result = SearchRepository.searchWithDurations(
-                        keyword = state.submittedQuery,
-                        order = state.searchOrder,
-                        durations = state.searchDurations,
-                        tids = state.videoTid,
-                        page = nextPage,
-                        pubBegin = state.pubBegin,
-                        pubEnd = state.pubEnd
-                    )
-                    result.onSuccess { (videos, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        val nativeFiltered = videos.filter { it.owner.mid !in blockedMids }
-                        val builtinFiltered = com.android.purebilibili.core.plugin.PluginManager
-                            .filterFeedItems(nativeFiltered, feedKind = FeedKind.SEARCH)
-                        val filteredVideos = com.android.purebilibili.core.plugin.json.JsonPluginManager
-                            .filterVideos(builtinFiltered)
 
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                searchResults = mergeSearchPageResults(it.searchResults, filteredVideos) { video -> video.bvid },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-                SearchType.UP -> {
-                    val result = SearchRepository.searchUp(
-                        keyword = state.submittedQuery,
-                        page = nextPage,
-                        order = state.upOrder,
-                        orderSort = state.upOrderSort,
-                        userType = state.upUserType
-                    )
-                    result.onSuccess { (ups, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        val filteredUps = ups.filter { it.mid !in blockedMids }
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                upResults = mergeSearchPageResults(it.upResults, filteredUps) { up -> up.mid },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-                SearchType.BANGUMI -> {
-                    val result = SearchRepository.searchBangumi(state.submittedQuery, page = nextPage)
-                    result.onSuccess { (bangumis, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                bangumiResults = mergeSearchPageResults(it.bangumiResults, bangumis) { item -> item.seasonId },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-                SearchType.MEDIA_FT -> {
-                    val result = SearchRepository.searchMediaFt(state.submittedQuery, page = nextPage)
-                    result.onSuccess { (items, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                bangumiResults = mergeSearchPageResults(it.bangumiResults, items) { item -> item.seasonId },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-                SearchType.LIVE -> {
-                    val result = SearchRepository.searchLive(
-                        keyword = state.submittedQuery,
-                        page = nextPage,
-                        order = state.liveOrder
-                    )
-                    result.onSuccess { (liveRooms, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        val filteredLive = liveRooms.filter { it.uid !in blockedMids }
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                liveResults = mergeSearchPageResults(it.liveResults, filteredLive) { room -> room.roomid },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-                SearchType.LIVE_USER -> {
-                    val result = SearchRepository.searchLiveUser(
-                        keyword = state.submittedQuery,
-                        page = nextPage
-                    )
-                    result.onSuccess { (liveUsers, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        val filteredLiveUsers = liveUsers.filter { it.uid !in blockedMids }
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                liveUserResults = mergeSearchPageResults(it.liveUserResults, filteredLiveUsers) { user -> user.uid },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-                SearchType.ARTICLE -> {
-                    val result = SearchRepository.searchArticle(
-                        keyword = state.submittedQuery,
-                        page = nextPage,
-                        order = state.articleOrder,
-                        categoryId = state.articleCategory.value
-                    )
-                    result.onSuccess { (articles, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                articleResults = mergeSearchPageResults(it.articleResults, articles) { article -> article.id },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-                SearchType.TOPIC -> {
-                    val result = SearchRepository.searchTopic(
-                        keyword = state.submittedQuery,
-                        page = nextPage
-                    )
-                    result.onSuccess { (topics, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                topicResults = mergeSearchPageResults(it.topicResults, topics) { topic -> topic.topicId },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-                SearchType.PHOTO -> {
-                    val result = SearchRepository.searchPhoto(
-                        keyword = state.submittedQuery,
-                        page = nextPage,
-                        order = state.photoOrder,
-                        categoryId = state.photoCategory.value
-                    )
-                    result.onSuccess { (photos, pageInfo) ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onSuccess
-                        _uiState.update {
-                            it.copy(
-                                isLoadingMore = false,
-                                loadMoreError = null,
-                                photoResults = mergeSearchPageResults(it.photoResults, photos) { photo -> photo.id },
-                                currentPage = pageInfo.currentPage,
-                                totalResults = pageInfo.totalResults,
-                                searchTypeCounts = it.searchTypeCounts + (state.searchType to pageInfo.totalResults),
-                                totalPages = pageInfo.totalPages,
-                                hasMoreResults = pageInfo.hasMore
-                            )
-                        }
-                    }.onFailure { e ->
-                        if (!shouldApplySearchResult(searchSessionId, activeSearchSessionId, state.submittedQuery, _uiState.value.submittedQuery, state.searchType, _uiState.value.searchType)) return@onFailure
-                        _uiState.update { it.withLoadMoreFailure("加载更多失败: ${e.message}") }
-                    }
-                }
-            }
-        }
+    private fun mergeSearchChunks(chunks: List<SearchPageChunk>): SearchResultPageUiState {
+        val last = chunks.lastOrNull()?.page ?: return SearchResultPageUiState()
+        val pages = chunks.map { it.page }
+        val merged = last.copy(
+            searchResults = pages.flatMap { it.searchResults }.distinctBy { it.bvid }.filter { it.owner.mid !in blockedMids },
+            upResults = pages.flatMap { it.upResults }.distinctBy { it.mid }.filter { it.mid !in blockedMids },
+            bangumiResults = pages.flatMap { it.bangumiResults }.distinctBy { it.seasonId },
+            liveResults = pages.flatMap { it.liveResults }.distinctBy { it.roomid }.filter { it.uid !in blockedMids },
+            liveUserResults = pages.flatMap { it.liveUserResults }.distinctBy { it.uid }.filter { it.uid !in blockedMids },
+            articleResults = pages.flatMap { it.articleResults }.distinctBy { it.id },
+            topicResults = pages.flatMap { it.topicResults }.distinctBy { it.topicId },
+            photoResults = pages.flatMap { it.photoResults }.distinctBy { it.id },
+        )
+        val visibleCount = merged.searchResults.size + merged.upResults.size + merged.bangumiResults.size +
+            merged.liveResults.size + merged.liveUserResults.size + merged.articleResults.size +
+            merged.topicResults.size + merged.photoResults.size
+        return merged.copy(totalCount = visibleCount,
+            emptyStateReason = if (visibleCount > 0) SearchEmptyStateReason.NONE else last.emptyStateReason)
     }
 
     private suspend fun loadDefaultSearchHintInternal() {

@@ -24,6 +24,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 import com.android.purebilibili.core.ui.animation.gl.ThanosEffectView
 import com.android.purebilibili.core.ui.animation.gl.isThanosEffectSupported
 import kotlinx.coroutines.CancellationException
@@ -207,9 +208,9 @@ fun DissolvableVideoCard(
                 stiffness = Spring.StiffnessHigh
             )
             DissolveAnimationPreset.TELEGRAM_FAST -> if (reflowDuringFinalTail) {
-                tween(240, easing = LinearOutSlowInEasing)
+                tween(240, easing = AppMotionEasing.M1Decelerate)
             } else {
-                tween(135, easing = FastOutSlowInEasing)
+                tween(135, easing = AppMotionEasing.M1Standard)
             }
         }
     }

@@ -126,6 +126,10 @@ internal fun extractApplicationExitSubReason(exitInfo: ApplicationExitInfo): Int
     }.getOrDefault(0)
 }
 
+@RequiresApi(Build.VERSION_CODES.R)
+private fun readExitProcessContext(exitInfo: ApplicationExitInfo): ProcessExitContext? =
+    runCatching { ProcessExitContext.decode(exitInfo.processStateSummary) }.getOrNull()
+
 /**
  * 读取系统记录的历史退出 Trace（含 Native 崩溃的 Tombstone 或 ANR 堆栈）。
  */
@@ -151,6 +155,8 @@ internal fun readProcessExitTrace(exitInfo: ApplicationExitInfo, maxLines: Int =
             }
             if (lines.isEmpty()) null else lines.joinToString("\n")
         }
+    }.onFailure { error ->
+        Logger.w("Android17Diagnostics", "System exit trace could not be read", error)
     }.getOrNull()
 }
 
@@ -162,7 +168,8 @@ internal fun readProcessExitTrace(exitInfo: ApplicationExitInfo, maxLines: Int =
 class AbnormalProcessExitException(
     message: String,
     val nativeTrace: String? = null,
-    val exitTimestampMillis: Long? = null
+    val exitTimestampMillis: Long? = null,
+    val processContext: String? = null,
 ) : RuntimeException(message) {
     init {
         // 清空由当前进程启动合成异常时产生的虚假 Java 堆栈，避免排查时误导用户
@@ -284,6 +291,9 @@ internal object Android17Diagnostics {
                         append("KB · rss=")
                         append(exitInfo.rss)
                         append("KB")
+                        readExitProcessContext(exitInfo)?.let {
+                            append(" · previousState=").append(it.describe())
+                        }
                         val subReasonCode = extractApplicationExitSubReason(exitInfo)
                         if (subReasonCode != 0) {
                             append(" · subReason=")
@@ -350,6 +360,7 @@ internal object Android17Diagnostics {
                 resolveProcessExitSubReasonLabel(subReasonCode)
             } else null
             val trace = readProcessExitTrace(exitInfo)
+            val processContext = readExitProcessContext(exitInfo)?.describe()
 
             val details = buildString {
                 append("系统记录的上次异常退出：")
@@ -366,6 +377,8 @@ internal object Android17Diagnostics {
                 append("KB；rss=")
                 append(exitInfo.rss)
                 append("KB")
+                append("；系统回溯=")
+                append(if (trace.isNullOrBlank()) "不可用（系统未保留、已覆盖或读取失败）" else "已获取")
                 subReason?.let {
                     append("；subReason=")
                     append(it)
@@ -379,7 +392,8 @@ internal object Android17Diagnostics {
                 AbnormalProcessExitException(
                     message = details,
                     nativeTrace = trace,
-                    exitTimestampMillis = exitInfo.timestamp
+                    exitTimestampMillis = exitInfo.timestamp,
+                    processContext = processContext,
                 )
             )
         }.onFailure { error ->

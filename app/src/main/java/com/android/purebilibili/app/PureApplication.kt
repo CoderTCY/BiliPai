@@ -226,6 +226,7 @@ class PureApplication : Application(), SingletonImageLoader.Factory, ComponentCa
         // Install the local crash path before theme, StrictMode, or any other startup work. This
         // ensures even an early initialization exception has a private snapshot for feedback.
         LogCollector.init(this)
+        com.android.purebilibili.core.performance.ProcessExitContextRecorder.initialize(this)
         CrashReporter.installGlobalExceptionHandler()
         // Apply stored collection choices before startup work or the first screen can report.
         CrashReporter.prepare(

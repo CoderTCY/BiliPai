@@ -1,5 +1,8 @@
 package com.android.purebilibili.feature.video.ui.overlay
 
+import com.android.purebilibili.core.util.rememberHapticFeedback
+import com.android.purebilibili.core.util.HapticType
+
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntRect
@@ -18,6 +21,7 @@ internal fun PlaybackOrderSelectionSheet(
     placement: PlayerListPopupPlacement = if (isFullscreen) PlayerListPopupPlacement.END else PlayerListPopupPlacement.CENTER,
     anchorBounds: IntRect? = null,
 ) {
+    val selectionHaptic = rememberHapticFeedback()
     PlayerSelectionPopup(title = "选择播放顺序", showTitle = false,
         onDismissRequest = onDismiss, placement = placement, anchorBounds = anchorBounds) {
         playerPlaybackOrderOptions.forEachIndexed { index, behavior ->
@@ -25,7 +29,11 @@ internal fun PlaybackOrderSelectionSheet(
             PlayerSelectionItem(text = behavior.label, selected = selected, enabled = !selected,
                 index = index, optionCount = playerPlaybackOrderOptions.size,
                 modifier = Modifier.playerPopupSelectedOption(selected),
-                onClick = { onSelect(behavior); onDismiss() })
+                onClick = {
+                    if (!selected) selectionHaptic(HapticType.LIGHT)
+                    onSelect(behavior)
+                    onDismiss()
+                })
         }
     }
 }

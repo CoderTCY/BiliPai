@@ -9,10 +9,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -27,7 +24,6 @@ import com.android.purebilibili.core.theme.AppUiStyle
 import com.android.purebilibili.core.theme.LocalAppUiStyle
 import com.android.purebilibili.core.ui.AppThemeConfig
 import com.android.purebilibili.core.ui.LocalAppThemeConfig
-import com.android.purebilibili.feature.video.screen.isVideoContentCommentListAtTop
 import com.android.purebilibili.feature.video.ui.components.CommentSortHeader
 import com.android.purebilibili.feature.video.ui.components.VideoCommentFloatingHeader
 import com.android.purebilibili.feature.video.viewmodel.CommentSortMode
@@ -46,10 +42,10 @@ class VideoCommentHeaderScrollUiTest {
     fun miuixFixedHeaderTracksScrollAndMaterialChanges() = verifyHeader(AppUiStyle.MIUIX, false)
 
     @Test
-    fun materialFloatingHeaderTracksScrollAndMaterialChanges() = verifyHeader(AppUiStyle.MATERIAL3, true)
+    fun materialFloatingHeaderStaysAvailableAcrossScrollAndMaterialChanges() = verifyHeader(AppUiStyle.MATERIAL3, true)
 
     @Test
-    fun miuixFloatingHeaderTracksScrollAndMaterialChanges() = verifyHeader(AppUiStyle.MIUIX, true)
+    fun miuixFloatingHeaderStaysAvailableAcrossScrollAndMaterialChanges() = verifyHeader(AppUiStyle.MIUIX, true)
 
     private fun verifyHeader(style: AppUiStyle, floating: Boolean) {
         val glass = mutableStateOf(true)
@@ -62,19 +58,9 @@ class VideoCommentHeaderScrollUiTest {
                     LocalAppThemeConfig provides AppThemeConfig(liquidGlassEnabled = glass.value),
                 ) {
                     val listState = currentList.value
-                    val listAtTop by remember(listState) {
-                        derivedStateOf {
-                            isVideoContentCommentListAtTop(
-                                listState.firstVisibleItemIndex,
-                                listState.firstVisibleItemScrollOffset,
-                            )
-                        }
-                    }
                     Column(Modifier.width(280.dp)) {
-                        // Floating hosts reserve the header inset independently of visibility.
-                        androidx.compose.foundation.layout.Box(
-                            if (floating) Modifier.height(46.dp) else Modifier,
-                        ) {
+                        // Let the narrow header wrap; a fixed slot would clip the second row.
+                        androidx.compose.foundation.layout.Box {
                             if (floating) {
                                 VideoCommentFloatingHeader(
                                     count = 427,
@@ -83,8 +69,6 @@ class VideoCommentHeaderScrollUiTest {
                                     onSearchClick = {},
                                     backdrop = null,
                                     liquidGlassEnabled = glass.value,
-                                    listAtTop = listAtTop,
-                                    motionEnabled = false,
                                     compactTitleTypography = true,
                                 )
                             } else {
@@ -111,8 +95,7 @@ class VideoCommentHeaderScrollUiTest {
         composeRule.onNodeWithText(title).assertIsDisplayed()
         val initialListTop = composeRule.onNodeWithTag("rows").fetchSemanticsNode().boundsInRoot.top
         composeRule.onNodeWithTag("rows").performScrollToIndex(3)
-        composeRule.onNodeWithText(title).assertIsNotDisplayed()
-        composeRule.onNodeWithContentDescription("搜索评论").assertIsNotDisplayed()
+        assertScrolledHeader(title, floating)
         assertEquals(initialListTop, composeRule.onNodeWithTag("rows").fetchSemanticsNode().boundsInRoot.top, 0.5f)
 
         // Turning glass off while already scrolled restores the entire native header.
@@ -120,7 +103,7 @@ class VideoCommentHeaderScrollUiTest {
         composeRule.onNodeWithText(title).assertIsDisplayed()
         composeRule.onNodeWithContentDescription("搜索评论").assertIsDisplayed()
         composeRule.runOnIdle { glass.value = true }
-        composeRule.onNodeWithText(title).assertIsNotDisplayed()
+        assertScrolledHeader(title, floating)
         composeRule.onNodeWithTag("rows").performScrollToIndex(0)
         composeRule.onNodeWithText(title).assertIsDisplayed()
 
@@ -129,6 +112,19 @@ class VideoCommentHeaderScrollUiTest {
         composeRule.runOnIdle { currentList.value = LazyListState() }
         composeRule.onNodeWithText(title).assertIsDisplayed()
         composeRule.onNodeWithTag("rows").performScrollToIndex(2)
-        composeRule.onNodeWithText(title).assertIsNotDisplayed()
+        assertScrolledHeader(title, floating)
+    }
+
+    private fun assertScrolledHeader(title: String, floating: Boolean) {
+        if (floating) {
+            composeRule.onNodeWithText(title).assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("搜索评论").assertIsDisplayed()
+            composeRule.onNodeWithText("最新").assertIsDisplayed()
+            composeRule.onNodeWithText("最热").assertIsDisplayed()
+        } else {
+            // Other fixed-header hosts keep their existing explicit scroll behavior.
+            composeRule.onNodeWithText(title).assertIsNotDisplayed()
+            composeRule.onNodeWithContentDescription("搜索评论").assertIsNotDisplayed()
+        }
     }
 }

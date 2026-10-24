@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import com.android.purebilibili.core.ui.AppTopTabPresentation
 import com.android.purebilibili.core.ui.transition.VideoSharedTransitionPlaybackIntent
 import com.android.purebilibili.feature.video.ui.components.GesturePercentMotionDefaults
@@ -107,17 +108,21 @@ internal fun resolveSubtitleBottomOffsetPx(
     positionLocked: Boolean = false,
     navigationInsetPx: Int,
     bottomControlsHeightPx: Int,
-    density: Float
+    density: Float,
+    persistentBottomOverlayHeightPx: Int = 0,
 ): Int {
     val safeDensity = density.takeIf { it.isFinite() && it > 0f } ?: 1f
     fun dp(value: Int): Int = (value * safeDensity).roundToInt()
     if (!isFullscreen && (!controlsVisible || positionLocked)) return dp(32)
     val safeInset = if (isFullscreen) navigationInsetPx.coerceAtLeast(0) else 0
-    return if (controlsVisible && !positionLocked) {
+    val baseOffset = if (controlsVisible && !positionLocked) {
         maxOf(safeInset + bottomControlsHeightPx.coerceAtLeast(0) + dp(8), dp(56))
     } else {
         maxOf(safeInset + dp(16), dp(24))
     }
+    return if (persistentBottomOverlayHeightPx > 0) {
+        maxOf(baseOffset, safeInset + persistentBottomOverlayHeightPx + dp(8))
+    } else baseOffset
 }
 
 internal fun resolveLongPressSpeedLockSensitivityPolicy(
@@ -705,6 +710,8 @@ internal fun resolveOrientationSwitchHintText(isFullscreen: Boolean): String {
     return if (isFullscreen) "已切换到横屏" else "已切换到竖屏"
 }
 
+/** 上滑/下滑触发全屏的拖动阈值；跟随提示与松手判定共用同一距离。 */
+internal val SwipeToFullscreenDragThresholdDp = 50.dp
 internal fun shouldTriggerFullscreenBySwipe(
     isFullscreen: Boolean,
     reverseGesture: Boolean,
@@ -719,6 +726,25 @@ internal fun shouldTriggerFullscreenBySwipe(
     } else {
         if (reverseGesture) isSwipeUp else isSwipeDown
     }
+}
+
+/**
+ * 拖动跟随提示进度 0..1，方向判定与 [shouldTriggerFullscreenBySwipe] 一致：
+ * 非全屏看上滑（reverseGesture 时看下滑），全屏相反；反向拖动钳为 0，不显示提示。
+ */
+internal fun resolveSwipeToFullscreenHintFraction(
+    isFullscreen: Boolean,
+    reverseGesture: Boolean,
+    totalDragDistanceY: Float,
+    thresholdPx: Float,
+): Float {
+    if (thresholdPx <= 0f) return 0f
+    val effectiveDistance = if (!isFullscreen) {
+        if (reverseGesture) totalDragDistanceY else -totalDragDistanceY
+    } else {
+        if (reverseGesture) -totalDragDistanceY else totalDragDistanceY
+    }
+    return (effectiveDistance / thresholdPx).coerceIn(0f, 1f)
 }
 
 /**
@@ -1263,20 +1289,22 @@ internal data class VideoPlayerCoverBootstrapState(
  *
  * - 可复用已渲染首帧时：跳过等待 FIRST_FRAME 事件，但 **不** 直接把 smooth reveal 置 true。
  *   否则「详情已出画 → 回首页 → 再进详情」会瞬间揭开画面，封面→画面过渡丢失。
- * - 两条路径统一：先垫封面，再由 [shouldCommitSmoothCoverReveal] 在绘制边界后揭开。
+ * - 全屏保帧只接受当前输出面真实出画的状态，不能仅凭切换意图跳过揭开。
+ * - 其他路径先垫封面，再由 [shouldCommitSmoothCoverReveal] 在绘制边界后揭开。
  */
 internal fun resolveVideoPlayerCoverBootstrapState(
     forceCoverDuringReturnAnimation: Boolean,
     shouldKeepCoverForManualStart: Boolean,
     hasPersistedRenderedFirstFrame: Boolean,
     preserveCurrentFrameOnFullscreenChange: Boolean = false,
+    hasCurrentOutputFrame: Boolean = false,
 ): VideoPlayerCoverBootstrapState {
     val shouldReuseRenderedFrame = !forceCoverDuringReturnAnimation &&
         !shouldKeepCoverForManualStart &&
         hasPersistedRenderedFirstFrame
     val shouldKeepCurrentFrameVisible = !forceCoverDuringReturnAnimation &&
         !shouldKeepCoverForManualStart &&
-        preserveCurrentFrameOnFullscreenChange
+        preserveCurrentFrameOnFullscreenChange && hasCurrentOutputFrame
     return VideoPlayerCoverBootstrapState(
         isFirstFrameRendered = shouldReuseRenderedFrame || shouldKeepCurrentFrameVisible,
         hasStartedSmoothReveal = shouldKeepCurrentFrameVisible,
@@ -1651,6 +1679,19 @@ internal fun shouldBindInlinePlayerViewToPlayer(
     return !isPortraitFullscreen &&
         (hostLifecycleStarted || isInPipMode || liveBackPreview)
 }
+
+/**
+ * 退出竖屏全屏后，是否需要为保留的内联 PlayerView 显式重绑 surface。
+ * 竖屏全屏期间播放输出交给 pager 的 view，内联 view 的 surface 已被接管；
+ * 回到内联时保留 PlayerView 实例（不再整 View 重建），仅重绑输出即可恢复画面。
+ */
+internal fun shouldRebindInlineSurfaceAfterPortraitFullscreenExit(
+    wasPortraitFullscreen: Boolean,
+    isPortraitFullscreen: Boolean,
+    shouldBindInlinePlayerView: Boolean,
+    hasPlayerView: Boolean,
+): Boolean = wasPortraitFullscreen && !isPortraitFullscreen &&
+    shouldBindInlinePlayerView && hasPlayerView
 
 internal fun shouldRecoverInlinePlayerAfterPredictiveBackCancel(
     recoveryGeneration: Int,

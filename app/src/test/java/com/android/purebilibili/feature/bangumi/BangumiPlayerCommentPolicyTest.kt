@@ -27,6 +27,8 @@ class BangumiPlayerCommentPolicyTest {
         )
         assertTrue(panel.contains("VideoCommentTab("))
         assertTrue(panel.contains("VideoCommentFloatingHeader("))
+        assertTrue(panel.contains("floatingHeaderContentPaddingPx = if (floatingHeader) commentHeaderHeightProvider else null"))
+        assertTrue(panel.contains("commentHeaderHeightPx.floatValue = size.height.toFloat()"))
         assertTrue(panel.contains("BottomInputBar("))
         assertTrue(panel.contains("showActionButtons = false"))
         assertTrue(panel.contains("onCheckCommentFraud = viewModel::checkCommentFraud"))

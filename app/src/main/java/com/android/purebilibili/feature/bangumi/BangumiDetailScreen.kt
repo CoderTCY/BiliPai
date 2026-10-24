@@ -56,6 +56,7 @@ import com.android.purebilibili.core.util.FormatUtils
 import com.android.purebilibili.data.model.response.BangumiDetail
 import com.android.purebilibili.data.model.response.BangumiEpisode
 import com.android.purebilibili.core.util.LocalWindowSizeClass
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import com.android.purebilibili.core.util.responsiveContentWidth
 // [重构] 使用提取的可复用组件
@@ -195,6 +196,7 @@ fun BangumiDetailScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TabletBangumiDetailContent(
     detail: BangumiDetail,
@@ -380,15 +382,20 @@ private fun TabletBangumiDetailContent(
                         val lastEpId = detail.userStatus?.progress?.lastEpId ?: 0L
                         detail.episodes?.firstOrNull { it.id == lastEpId } ?: detail.episodes?.firstOrNull()
                     }
-                    Row(
+                    val actionButtonMinWidth = (120f * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         if (targetEpisode != null) {
                             AppButton(
                                 onClick = { onEpisodeClick(targetEpisode) },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                                modifier = Modifier.weight(1f).height(48.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .widthIn(min = actionButtonMinWidth)
+                                    .heightIn(min = 48.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = resolveFilledButtonContainerColor(MaterialTheme.colorScheme),
                                     contentColor = resolveFilledButtonContentColor(MaterialTheme.colorScheme)
@@ -427,7 +434,10 @@ private fun TabletBangumiDetailContent(
                                 contentColor = if (isFollowing || targetEpisode != null) AppContentColors.secondaryText() else AppContentColors.onAccent()
                             ),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                            modifier = Modifier.weight(1f).height(48.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .widthIn(min = actionButtonMinWidth)
+                                .heightIn(min = 48.dp),
                         ) {
                             AppIcon(
                                 if (isFollowing) Icons.Outlined.Check else Icons.Outlined.Add,
@@ -435,19 +445,27 @@ private fun TabletBangumiDetailContent(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            AppText(if (isCourse) {
-                                if (isFollowing) "已收藏" else "收藏"
-                            } else {
-                                resolveBangumiFollowStatusLabel(detail.userStatus)
-                            })
+                            AppText(
+                                text = if (isCourse) {
+                                    if (isFollowing) "已收藏" else "收藏"
+                                } else {
+                                    resolveBangumiFollowStatusLabel(detail.userStatus)
+                                },
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         if (canReviewBangumi(detail.mediaId, detail.rights)) {
                             AppOutlinedButton(
                                 onClick = { onReviewsClick(detail.mediaId, detail.title) },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                                modifier = Modifier.weight(1f).height(48.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .widthIn(min = actionButtonMinWidth)
+                                    .heightIn(min = 48.dp),
                             ) {
-                                AppText("点评")
+                                AppText("点评", maxLines = 1, softWrap = false)
                             }
                         }
                     }
@@ -717,6 +735,7 @@ private fun TabletBangumiDetailContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MobileBangumiDetailContent(
     detail: BangumiDetail,
@@ -940,17 +959,22 @@ private fun MobileBangumiDetailContent(
                     val lastEpId = detail.userStatus?.progress?.lastEpId ?: 0L
                     detail.episodes?.firstOrNull { it.id == lastEpId } ?: detail.episodes?.firstOrNull()
                 }
-                Row(
+                val actionButtonMinWidth = (120f * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
+                FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (targetEpisode != null) {
                         AppButton(
                             onClick = { onEpisodeClick(targetEpisode) },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                            modifier = Modifier.weight(1f).height(48.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .widthIn(min = actionButtonMinWidth)
+                                .heightIn(min = 48.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = resolveFilledButtonContainerColor(MaterialTheme.colorScheme),
                                 contentColor = resolveFilledButtonContentColor(MaterialTheme.colorScheme)
@@ -990,7 +1014,10 @@ private fun MobileBangumiDetailContent(
                                 AppContentColors.accent()
                             ),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                            modifier = Modifier.weight(1f).height(48.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .widthIn(min = actionButtonMinWidth)
+                                .heightIn(min = 48.dp)
                         ) {
                             AppIcon(
                                 Icons.Outlined.Check,
@@ -998,7 +1025,12 @@ private fun MobileBangumiDetailContent(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            AppText(if (isCourse) "已收藏" else resolveBangumiFollowStatusLabel(detail.userStatus))
+                            AppText(
+                                text = if (isCourse) "已收藏" else resolveBangumiFollowStatusLabel(detail.userStatus),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     } else {
                         //  未追番/未收藏：使用填充的主色按钮
@@ -1011,7 +1043,10 @@ private fun MobileBangumiDetailContent(
                                 contentColor = if (targetEpisode != null) AppContentColors.secondaryText() else resolveFilledButtonContentColor(MaterialTheme.colorScheme)
                             ),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                            modifier = Modifier.weight(1f).height(48.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .widthIn(min = actionButtonMinWidth)
+                                .heightIn(min = 48.dp)
                         ) {
                             AppIcon(
                                 Icons.Outlined.Add,
@@ -1019,16 +1054,24 @@ private fun MobileBangumiDetailContent(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            AppText(if (isCourse) "收藏" else "追番")
+                            AppText(
+                                text = if (isCourse) "收藏" else "追番",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                     if (canReviewBangumi(detail.mediaId, detail.rights)) {
                         AppOutlinedButton(
                             onClick = { onReviewsClick(detail.mediaId, detail.title) },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                            modifier = Modifier.weight(1f).height(48.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .widthIn(min = actionButtonMinWidth)
+                                .heightIn(min = 48.dp),
                         ) {
-                            AppText("点评")
+                            AppText("点评", maxLines = 1, softWrap = false)
                         }
                     }
                 }

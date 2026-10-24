@@ -12,6 +12,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -462,6 +465,7 @@ private data class UpPreviewFetchResult(
     val likes: Int?,
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UpPreviewSheetHeader(
     owner: Owner,
@@ -499,44 +503,53 @@ private fun UpPreviewSheetHeader(
             )
         }
 
-        Row(
+        FlowRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(top = 4.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            AsyncImage(
-                model = FormatUtils.fixImageUrl(owner.face),
-                contentDescription = "UP主头像",
+            Row(
                 modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(colors.coverPlaceholderColor),
-                contentScale = ContentScale.Crop,
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                AppText(
-                    text = owner.name.ifBlank { "UP主" },
-                    color = colors.titleColor,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    overflow = TextOverflow.Visible,
+                    .weight(1f)
+                    .widthIn(min = 160.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AsyncImage(
+                    model = FormatUtils.fixImageUrl(owner.face),
+                    contentDescription = "UP主头像",
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(colors.coverPlaceholderColor),
+                    contentScale = ContentScale.Crop,
                 )
-                Spacer(Modifier.height(4.dp))
-                AppText(
-                    text = resolveUpPreviewStatLine(
-                        followerCount = followerCount,
-                        videoCount = videoCount,
-                        likeCount = likeCount,
-                    ).ifBlank { " " },
-                    color = colors.supportingColor,
-                    style = MaterialTheme.typography.bodySmall,
-                    overflow = TextOverflow.Visible,
-                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    AppText(
+                        text = owner.name.ifBlank { "UP主" },
+                        color = colors.titleColor,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppText(
+                        text = resolveUpPreviewStatLine(
+                            followerCount = followerCount,
+                            videoCount = videoCount,
+                            likeCount = likeCount,
+                        ).ifBlank { " " },
+                        color = colors.supportingColor,
+                        style = MaterialTheme.typography.bodySmall,
+                        overflow = TextOverflow.Visible,
+                    )
+                }
             }
-            Spacer(Modifier.width(8.dp))
             AppSurface(
                 modifier = Modifier.clickable(
                     onClickLabel = if (followStatusKnown) null else "重新确认状态并关注",
@@ -556,6 +569,8 @@ private fun UpPreviewSheetHeader(
             ) {
                 AppText(
                     text = if (!followStatusKnown) "待确认" else if (isFollowing) "已关注" else "+ 关注",
+                    maxLines = 1,
+                    softWrap = false,
                     color = if (!followStatusKnown || isFollowing) {
                         colors.followingContentColor
                     } else {
@@ -566,9 +581,10 @@ private fun UpPreviewSheetHeader(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
-            Spacer(Modifier.width(8.dp))
             AppText(
                 text = "进入空间  >",
+                maxLines = 1,
+                softWrap = false,
                 color = colors.enterSpaceColor,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,

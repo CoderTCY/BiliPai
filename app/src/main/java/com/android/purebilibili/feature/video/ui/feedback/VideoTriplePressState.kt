@@ -1,6 +1,5 @@
 package com.android.purebilibili.feature.video.ui.feedback
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
@@ -17,6 +16,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.android.purebilibili.core.ui.motion.AppMotionEasing
 
 internal const val VIDEO_TRIPLE_HOLD_MILLIS = 900
 private const val VIDEO_TRIPLE_CANCEL_MILLIS = 180
@@ -90,7 +90,7 @@ internal fun rememberVideoTriplePressState(
             animate(
                 initialValue = state.progress,
                 targetValue = 0f,
-                animationSpec = tween(VIDEO_TRIPLE_CANCEL_MILLIS, easing = FastOutSlowInEasing),
+                animationSpec = tween(VIDEO_TRIPLE_CANCEL_MILLIS, easing = AppMotionEasing.M1Standard),
             ) { value, _ -> state.updateProgress(value) }
         }
     }

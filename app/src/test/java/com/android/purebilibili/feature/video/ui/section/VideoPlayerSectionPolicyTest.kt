@@ -2202,4 +2202,111 @@ class VideoPlayerSectionPolicyTest {
         assertFalse(spec.coverUsesSharedBounds)
         assertFalse(spec.showManualStartPlayButton)
     }
+
+    @Test
+    fun `swipe hint fraction follows trigger direction and clamps to threshold`() {
+        // 非全屏上滑(负距离)推进进度;下滑钳为 0。
+        assertEquals(
+            0.5f,
+            resolveSwipeToFullscreenHintFraction(
+                isFullscreen = false,
+                reverseGesture = false,
+                totalDragDistanceY = -25f,
+                thresholdPx = 50f,
+            ),
+        )
+        assertEquals(
+            0f,
+            resolveSwipeToFullscreenHintFraction(
+                isFullscreen = false,
+                reverseGesture = false,
+                totalDragDistanceY = 25f,
+                thresholdPx = 50f,
+            ),
+        )
+        // 全屏退出路径方向相反:下滑推进,上滑钳为 0。
+        assertEquals(
+            1f,
+            resolveSwipeToFullscreenHintFraction(
+                isFullscreen = true,
+                reverseGesture = false,
+                totalDragDistanceY = 80f,
+                thresholdPx = 50f,
+            ),
+        )
+        assertEquals(
+            0f,
+            resolveSwipeToFullscreenHintFraction(
+                isFullscreen = true,
+                reverseGesture = false,
+                totalDragDistanceY = -80f,
+                thresholdPx = 50f,
+            ),
+        )
+        // reverseGesture 翻转有效方向。
+        assertEquals(
+            1f,
+            resolveSwipeToFullscreenHintFraction(
+                isFullscreen = false,
+                reverseGesture = true,
+                totalDragDistanceY = 60f,
+                thresholdPx = 50f,
+            ),
+        )
+        assertEquals(
+            0f,
+            resolveSwipeToFullscreenHintFraction(
+                isFullscreen = false,
+                reverseGesture = true,
+                totalDragDistanceY = -60f,
+                thresholdPx = 0f,
+            ),
+        )
+    }
+
+    @Test
+    fun `portrait fullscreen exit triggers inline surface rebind only on transition`() {
+        // 进入竖屏全屏与全屏期间不触发；退出瞬间(上一帧全屏、当前帧内联)才触发。
+        assertTrue(
+            shouldRebindInlineSurfaceAfterPortraitFullscreenExit(
+                wasPortraitFullscreen = true,
+                isPortraitFullscreen = false,
+                shouldBindInlinePlayerView = true,
+                hasPlayerView = true,
+            )
+        )
+        assertFalse(
+            shouldRebindInlineSurfaceAfterPortraitFullscreenExit(
+                wasPortraitFullscreen = false,
+                isPortraitFullscreen = false,
+                shouldBindInlinePlayerView = true,
+                hasPlayerView = true,
+            )
+        )
+        assertFalse(
+            shouldRebindInlineSurfaceAfterPortraitFullscreenExit(
+                wasPortraitFullscreen = true,
+                isPortraitFullscreen = true,
+                shouldBindInlinePlayerView = true,
+                hasPlayerView = true,
+            )
+        )
+        // 内联未接入播放(全屏期间)或 view 已卸载时不重绑。
+        assertFalse(
+            shouldRebindInlineSurfaceAfterPortraitFullscreenExit(
+                wasPortraitFullscreen = true,
+                isPortraitFullscreen = false,
+                shouldBindInlinePlayerView = false,
+                hasPlayerView = true,
+            )
+        )
+        assertFalse(
+            shouldRebindInlineSurfaceAfterPortraitFullscreenExit(
+                wasPortraitFullscreen = true,
+                isPortraitFullscreen = false,
+                shouldBindInlinePlayerView = true,
+                hasPlayerView = false,
+            )
+        )
+    }
 }

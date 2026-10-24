@@ -365,6 +365,8 @@ fun BangumiPlayerView(
     var startVolumeStep by remember { mutableIntStateOf(0) }
     var totalVolumeDragDistanceY by remember { mutableFloatStateOf(0f) }
     var seekPreviewPosition by remember { mutableLongStateOf(0L) }
+    // 横滑快进的起点在拖动开始时定格：拖动期间播放继续推进，目标不随播飘移。
+    var seekGestureStartPosition by remember { mutableLongStateOf(0L) }
     val longPressSpeed by SettingsManager.getLongPressSpeed(context)
         .collectAsState(initial = DEFAULT_LONG_PRESS_SPEED)
     var longPressOriginalPlaybackParameters by remember(exoPlayer) {
@@ -452,6 +454,7 @@ fun BangumiPlayerView(
                             dragDelta = 0f
                             totalVolumeDragDistanceY = 0f
                             seekPreviewPosition = currentPosition
+                            seekGestureStartPosition = currentPosition
                             gestureMode = BangumiGestureMode.None
                         },
                         onDragEnd = {
@@ -543,9 +546,26 @@ fun BangumiPlayerView(
                                 }
                                 BangumiGestureMode.Seek -> {
                                     dragDelta += dragAmount.x
-                                    val seekDelta = (dragDelta / screenWidth * duration).toLong()
-                                    seekPreviewPosition = (currentPosition + seekDelta).coerceIn(0L, duration)
-                                    currentProgress = (seekPreviewPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                                    // 与普通视频共用同一横滑策略：遵守全屏/内联滑动秒数、
+                                    // 灵敏度与相对时长设置；全屏横滑被设置关闭时策略返回
+                                    // null，拖动不再产生越界目标。
+                                    val seekDelta = com.android.purebilibili.feature.video.ui.section
+                                        .resolveHorizontalSeekDeltaMs(
+                                            isFullscreen = isFullscreen,
+                                            fullscreenSwipeSeekEnabled = playerInteractionSettings.fullscreenSwipeSeekEnabled,
+                                            totalDragDistanceX = dragDelta,
+                                            containerWidthPx = screenWidth,
+                                            fullscreenSwipeSeekSeconds = playerInteractionSettings.fullscreenSwipeSeekSeconds,
+                                            inlineSwipeSeekSeconds = playerInteractionSettings.inlineSwipeSeekSeconds,
+                                            gestureSensitivity = playerInteractionSettings.gestureSensitivity,
+                                            durationMs = duration,
+                                            useRelativeDuration = playerInteractionSettings.swipeSeekUseRelativeDuration,
+                                            relativeSeekPercent = playerInteractionSettings.swipeSeekRelativePercent,
+                                        )
+                                    if (seekDelta != null) {
+                                        seekPreviewPosition = (seekGestureStartPosition + seekDelta).coerceIn(0L, duration)
+                                        currentProgress = (seekPreviewPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                                    }
                                 }
                                 else -> {}
                             }
@@ -723,32 +743,29 @@ fun BangumiPlayerView(
             compact = !isFullscreen,
         )
         if (showGestureIndicator && gestureMode == BangumiGestureMode.Seek) {
+            // 与普通视频一致：预览气泡展示目标时间与相对起点的时间增量；
+            // 无缩略图时使用简版气泡，同样带增量文本。
             if (videoshotData?.isValid == true) {
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    com.android.purebilibili.feature.video.ui.components.CompactSeekPreview(
-                        videoshotData = videoshotData,
-                        targetPositionMs = seekPreviewPosition,
-                        durationMs = duration,
-                        containerHeightDp = maxHeight.value.toInt(),
-                        modifier = Modifier.align(Alignment.Center),
-                    )
-                }
-            } else BangumiGestureIndicator(
-                mode = gestureMode,
-                value = when (gestureMode) {
-                    BangumiGestureMode.Brightness -> currentBrightness
-                    BangumiGestureMode.Volume -> gestureValue
-                    BangumiGestureMode.Seek -> currentProgress
-                    else -> 0f
-                },
-                seekTime = if (gestureMode == BangumiGestureMode.Seek) seekPreviewPosition else null,
-                duration = duration,
-                modifier = if (gestureMode == BangumiGestureMode.Seek) {
-                    Modifier.align(Alignment.Center)
-                } else {
-                    Modifier.fillMaxSize()
-                }
-            )
+                com.android.purebilibili.feature.video.ui.components.SeekPreviewBubble(
+                    videoshotData = videoshotData,
+                    targetPositionMs = seekPreviewPosition,
+                    currentPositionMs = seekGestureStartPosition,
+                    durationMs = duration,
+                    offsetX = 0f,
+                    containerWidth = 0f,
+                    placement = com.android.purebilibili.feature.video.ui.components.SeekPreviewBubblePlacement.Centered,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            } else {
+                com.android.purebilibili.feature.video.ui.components.SeekPreviewBubbleSimple(
+                    targetPositionMs = seekPreviewPosition,
+                    currentPositionMs = seekGestureStartPosition,
+                    offsetX = 0f,
+                    containerWidth = 0f,
+                    placement = com.android.purebilibili.feature.video.ui.components.SeekPreviewBubblePlacement.Centered,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
         }
 
         NextWatchOverlay(
@@ -910,75 +927,6 @@ fun BangumiPlayerView(
                 .align(Alignment.BottomEnd)
                 .padding(bottom = 60.dp, end = 16.dp)  //  向上偏移避免与进度条重叠
         )
-    }
-}
-
-/**
- * 手势指示器
- */
-@Composable
-fun BangumiGestureIndicator(
-    mode: BangumiGestureMode,
-    value: Float,
-    seekTime: Long?,
-    duration: Long,
-    modifier: Modifier = Modifier
-) {
-    val playerChromeProfile = rememberAppPlayerChromeProfile()
-    val overlayStyle = rememberGestureLevelOverlayStyle(playerChromeProfile.tabPresentation)
-    when (mode) {
-        BangumiGestureMode.Brightness, BangumiGestureMode.Volume -> {
-            val mappedMode = if (mode == BangumiGestureMode.Brightness) {
-                VideoGestureMode.Brightness
-            } else {
-                VideoGestureMode.Volume
-            }
-            val kind = resolveGestureLevelKind(mappedMode) ?: return
-            val alignment = resolveGestureLevelOverlaySpec(
-                style = overlayStyle,
-                kind = kind,
-                percent = value,
-                brightnessColor = androidx.compose.ui.res.colorResource(com.android.purebilibili.R.color.player_brightness_accent),
-            ).alignment
-            Box(
-                modifier = modifier.fillMaxSize(),
-                contentAlignment = alignment
-            ) {
-                GestureLevelOverlayContent(
-                    mode = mappedMode,
-                    percent = value,
-                    style = overlayStyle,
-                    modifier = if (playerChromeProfile.effects.usesTonalContainerTreatment) {
-                        Modifier.padding(horizontal = 22.dp)
-                    } else {
-                        Modifier
-                    }
-                )
-            }
-        }
-        BangumiGestureMode.Seek -> {
-            AppSurface(
-                modifier = modifier,
-                shape = AppShapes.container(ContainerLevel.Card),
-                color = Color.Black.copy(alpha = 0.74f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.58f)),
-                shadowElevation = 6.dp,
-                tonalElevation = 0.dp
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
-                ) {
-                    AppText(
-                        "${FormatUtils.formatDuration(((seekTime ?: 0) / 1000).toInt())} / ${FormatUtils.formatDuration((duration / 1000).toInt())}",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-        else -> Unit
     }
 }
 

@@ -30,9 +30,5 @@ gradlePlugin {
             id = "com.android.bilipai.workmanager-namespace-guard"
             implementationClass = "com.android.purebilibili.build.WorkManagerNamespaceGuardPlugin"
         }
-        create("miuixMaterialKolorCompat") {
-            id = "com.android.bilipai.miuix-materialkolor-compat"
-            implementationClass = "com.android.purebilibili.build.MiuixMaterialKolorCompatPlugin"
-        }
     }
 }

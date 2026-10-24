@@ -1,5 +1,9 @@
 package com.android.purebilibili.feature.space
 
+import androidx.paging.LoadState
+import androidx.paging.PagingConfig
+import com.android.purebilibili.core.paging.ForwardPagingSession
+import com.android.purebilibili.core.store.TokenManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -186,9 +190,16 @@ class SpaceViewModel(
     private var activeSpaceLoadJob: Job? = null
     private var activeSpaceSupplementalJob: Job? = null
     private var activeSpaceArticleJob: Job? = null
+    private var activeSpaceAudioJob: Job? = null
+    private var audioPagingSession: ForwardPagingSession<Int, SpaceContributionPage<SpaceAudioItem>>? = null
+    private var articlePagingSession: ForwardPagingSession<Int, SpaceContributionPage<SpaceArticleItem>>? = null
+    private var articlePagingReportsErrors = false
+    private var contributionAccount = TokenManager.accountIdentity.value
     private var activeSpaceCheeseJob: Job? = null
     private var activeSpaceSearchJob: Job? = null
     private var activeVideoListJob: Job? = null
+    private var videoPagingJob: Job? = null
+    private var videoPagingSession: ForwardPagingSession<SpaceVideoPageKey, SpaceVideoPageChunk>? = null
     private var activeSpaceWatchHistoryJob: Job? = null
     private var activeVideoListGeneration: Long = 0
 
@@ -200,6 +211,9 @@ class SpaceViewModel(
     private var currentKeyword: String = ""
     
     init {
+        viewModelScope.launch {
+            TokenManager.accountIdentity.collect { ensureContributionAccount() }
+        }
         viewModelScope.launch {
             ActionRepository.followStateChanges.collect { change ->
                 val currentState = _uiState.value as? SpaceUiState.Success ?: return@collect
@@ -233,12 +247,17 @@ class SpaceViewModel(
         currentKeyword = ""
         activeSpaceSearchJob?.cancel()
         activeVideoListJob?.cancel()
+        videoPagingJob?.cancel()
+        videoPagingSession = null
         activeSpaceLoadGeneration += 1
         activeVideoListGeneration += 1
         val requestGeneration = activeSpaceLoadGeneration
         activeSpaceLoadJob?.cancel()
         activeSpaceSupplementalJob?.cancel()
         activeSpaceArticleJob?.cancel()
+        activeSpaceAudioJob?.cancel()
+        articlePagingSession = null
+        audioPagingSession = null
         activeSpaceCheeseJob?.cancel()
         activeSpaceWatchHistoryJob?.cancel()
 
@@ -790,6 +809,8 @@ class SpaceViewModel(
     
     private fun beginVideoListRequest(): Long {
         activeVideoListJob?.cancel()
+        videoPagingJob?.cancel()
+        videoPagingSession = null
         activeVideoListGeneration += 1
         return activeVideoListGeneration
     }
@@ -797,96 +818,61 @@ class SpaceViewModel(
     fun loadMoreVideos() {
         val current = _uiState.value as? SpaceUiState.Success ?: return
         if (current.isLoadingMore || !current.hasMoreVideos) return
-        
-        val nextPage = resolveNextSpaceVideoPage(
-            order = currentOrder,
-            currentPage = currentPage,
-            totalCount = current.totalVideos,
-            pageSize = pageSize
-        ) ?: run {
-            _uiState.value = current.copy(
-                hasMoreVideos = false,
-                videoPageLoadCompletionVersion = current.videoPageLoadCompletionVersion + 1,
-                lastVideoPageLoadFailed = false,
-            )
-            return
-        }
-        android.util.Log.d("SpaceVM", " loadMoreVideos: page=$nextPage, tid=$currentTid, order=$currentOrder")
-        val requestGeneration = beginVideoListRequest()
+        videoPagingSession?.let { it.appendOrRetry(); return }
+        val generation = activeVideoListGeneration
+        val requestMid = currentMid
         val requestTid = currentTid
         val requestOrder = currentOrder
         val requestKeyword = currentKeyword
-        
-        activeVideoListJob = viewModelScope.launch {
-            _uiState.value = current.copy(
-                isLoadingMore = true,
-                lastVideoPageLoadFailed = false,
-            )
-            
-            try {
-                if (!ensureWbiKeysLoaded()) {
-                    if (shouldApplySpaceVideoResult(currentMid, currentMid, requestGeneration, activeVideoListGeneration, requestTid, currentTid, requestOrder, currentOrder, requestKeyword, currentKeyword)) {
-                        _uiState.value = current.copy(
-                            isLoadingMore = false,
-                            videoPageLoadCompletionVersion = current.videoPageLoadCompletionVersion + 1,
-                            lastVideoPageLoadFailed = true,
+        val identity = TokenManager.accountIdentity.value
+        val seed = SpaceVideoPageChunk(currentPage, current.videos, current.totalVideos)
+        var appliedPages = 0
+        var lastFailed = false
+        lateinit var session: ForwardPagingSession<SpaceVideoPageKey, SpaceVideoPageChunk>
+        session = ForwardPagingSession(
+            config = PagingConfig(pageSize = 1, initialLoadSize = 1, prefetchDistance = 1, enablePlaceholders = false),
+            sourceFactory = {
+                spaceVideoPagingSource(seed, requestOrder, pageSize) { number ->
+                    check(ensureWbiKeysLoaded()) { "无法获取视频请求签名" }
+                    val result = checkNotNull(fetchSpaceVideos(
+                        requestMid, number, cachedImgKey, cachedSubKey, requestTid, requestOrder, requestKeyword
+                    )) { "视频加载失败，请重试" }
+                    SpaceVideoPageChunk(number, normalizeSpaceVideoPage(requestOrder, result.list.vlist), result.page.count)
+                }
+            },
+            onChanged = { pages, states ->
+                if (videoPagingSession === session && identity == TokenManager.accountIdentity.value &&
+                    shouldApplySpaceVideoResult(requestMid, currentMid, generation, activeVideoListGeneration,
+                        requestTid, currentTid, requestOrder, currentOrder, requestKeyword, currentKeyword) && states != null
+                ) {
+                    val failed = states.refresh is LoadState.Error || states.append is LoadState.Error
+                    val ready = states.refresh is LoadState.NotLoading && pages.size > appliedPages
+                    val completed = (ready && pages.size > 1) || (failed && !lastFailed)
+                    _uiState.update { state ->
+                        val latest = state as? SpaceUiState.Success
+                        if (latest == null) state else latest.copy(
+                            videos = if (ready) mergeSpaceVideoPages(latest.videos, pages.drop(appliedPages).flatMap { it.items }) else latest.videos,
+                            isLoadingMore = states.refresh is LoadState.Loading || states.append is LoadState.Loading,
+                            hasMoreVideos = !states.append.endOfPaginationReached,
+                            videoPageLoadCompletionVersion = latest.videoPageLoadCompletionVersion + if (completed) 1 else 0,
+                            lastVideoPageLoadFailed = failed,
                         )
                     }
-                    return@launch
-                }
-                val result = fetchSpaceVideos(
-                    currentMid,
-                    nextPage,
-                    cachedImgKey,
-                    cachedSubKey,
-                    requestTid,
-                    requestOrder,
-                    requestKeyword
-                )
-                
-                if (result != null) {
-                    if (!shouldApplySpaceVideoResult(currentMid, currentMid, requestGeneration, activeVideoListGeneration, requestTid, currentTid, requestOrder, currentOrder, requestKeyword, currentKeyword)) {
-                        return@launch
-                    }
-                    currentPage = nextPage
-                    val normalizedVideos = normalizeSpaceVideoPage(requestOrder, result.list.vlist)
-                    val newVideos = mergeSpaceVideoPages(current.videos, normalizedVideos)
-                    android.util.Log.d("SpaceVM", " loadMoreVideos success: +${result.list.vlist.size} videos, total=${newVideos.size}")
-                    _uiState.value = current.copy(
-                        videos = newVideos,
-                        isLoadingMore = false,
-                        hasMoreVideos = resolveNextSpaceVideoPage(
-                            order = currentOrder,
-                            currentPage = currentPage,
-                            totalCount = result.page.count,
-                            pageSize = pageSize
-                        ) != null,
-                        videoPageLoadCompletionVersion = current.videoPageLoadCompletionVersion + 1,
-                        lastVideoPageLoadFailed = false,
-                    )
-                } else {
-                    android.util.Log.e("SpaceVM", " loadMoreVideos failed: result is null")
-                    if (shouldApplySpaceVideoResult(currentMid, currentMid, requestGeneration, activeVideoListGeneration, requestTid, currentTid, requestOrder, currentOrder, requestKeyword, currentKeyword)) {
-                        _uiState.value = current.copy(
-                            isLoadingMore = false,
-                            videoPageLoadCompletionVersion = current.videoPageLoadCompletionVersion + 1,
-                            lastVideoPageLoadFailed = true,
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("SpaceVM", " loadMoreVideos error: ${e.message}", e)
-                if (shouldApplySpaceVideoResult(currentMid, currentMid, requestGeneration, activeVideoListGeneration, requestTid, currentTid, requestOrder, currentOrder, requestKeyword, currentKeyword)) {
-                    _uiState.value = current.copy(
-                        isLoadingMore = false,
-                        videoPageLoadCompletionVersion = current.videoPageLoadCompletionVersion + 1,
-                        lastVideoPageLoadFailed = true,
-                    )
+                    if (ready) { appliedPages = pages.size; currentPage = pages.last().number }
+                    lastFailed = failed
                 }
             }
+        )
+        videoPagingSession = session
+        videoPagingJob = viewModelScope.launch {
+            session.run()
+        }
+        viewModelScope.launch {
+            session.awaitInitialLoad()
+            if (videoPagingSession === session) session.append()
         }
     }
-    
+
     //  获取 WBI 签名 keys
     private suspend fun fetchWbiKeys(): Pair<String, String>? {
         return try {
@@ -895,6 +881,8 @@ class SpaceViewModel(
             val imgKey = wbiImg.img_url.substringAfterLast("/").substringBefore(".")
             val subKey = wbiImg.sub_url.substringAfterLast("/").substringBefore(".")
             Pair(imgKey, subKey)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("SpaceVM", "fetchWbiKeys error: ${e.message}")
             null
@@ -2023,149 +2011,137 @@ class SpaceViewModel(
         }
     }
     
-    fun loadSpaceAudios(refresh: Boolean = false) {
-        val current = _uiState.value as? SpaceUiState.Success ?: return
-        if (current.isLoadingAudios) return
-        if (!refresh && !current.hasMoreAudios) return
-        
-        viewModelScope.launch {
-            _uiState.value = current.copy(isLoadingAudios = true).markTabLoading(SpaceMainTab.CONTRIBUTION)
-            val page = if (refresh) 1 else current.audioPage + 1
-            
-            try {
-                val result = fetchSpaceAudioList(currentMid, page)
-                val currentState = _uiState.value as? SpaceUiState.Success ?: return@launch
-                
-                if (result != null && result.code == 0) {
-                    val newItems = result.data?.data ?: emptyList()
-                    // 按 id 去重后追加；新页为空立即终止，防止 totalSize 虚高导致无限加载
-                    val existingIds = currentState.audios.mapTo(HashSet()) { it.id }
-                    val dedupedNew = newItems.filter { existingIds.add(it.id) }
-                    val allItems = if (refresh) dedupedNew else currentState.audios + dedupedNew
-                    val totalCount = maxOf(
-                        result.data?.totalSize ?: 0,
-                        allItems.size,
-                    )
-                    // song/upper 的 totalSize 可能缺失（coerce 成 0），此时退化为
-                    // 「整页填满则还有更多」启发式，避免只加载第一页。
-                    val hasMore = dedupedNew.isNotEmpty() && (
-                        allItems.size < totalCount ||
-                            dedupedNew.size >= SPACE_AUDIO_PAGE_SIZE_CONST
-                        )
-
-                    _uiState.value = currentState.copy(
-                        audios = allItems,
-                        totalAudios = totalCount,
-                        audioPage = page,
-                        hasMoreAudios = hasMore,
-                        isLoadingAudios = false
-                    ).markTabResult(SpaceMainTab.CONTRIBUTION)
-                } else {
-                     _uiState.value = currentState.copy(
-                         isLoadingAudios = false
-                     ).markTabResult(
-                         tab = SpaceMainTab.CONTRIBUTION,
-                         error = "音频加载失败"
-                     )
-                }
-            } catch (e: Exception) {
-                val currentState = _uiState.value as? SpaceUiState.Success ?: return@launch
-                _uiState.value = currentState.copy(
-                    isLoadingAudios = false
-                ).markTabResult(
-                    tab = SpaceMainTab.CONTRIBUTION,
-                    error = e.message ?: "音频加载失败"
-                )
-            }
+    private fun ensureContributionAccount() {
+        val identity = TokenManager.accountIdentity.value
+        if (identity == contributionAccount) return
+        contributionAccount = identity
+        activeSpaceAudioJob?.cancel()
+        activeSpaceArticleJob?.cancel()
+        audioPagingSession = null
+        articlePagingSession = null
+        videoPagingJob?.cancel()
+        videoPagingSession = null
+        _uiState.update { state ->
+            (state as? SpaceUiState.Success)?.copy(isLoadingAudios = false, isLoadingArticles = false, isLoadingMore = false) ?: state
         }
     }
-    
-    fun loadSpaceArticles(refresh: Boolean = false) {
-       val current = _uiState.value as? SpaceUiState.Success ?: return
-        if (current.isLoadingArticles) return
-        if (!refresh && !current.hasMoreArticles) return
-        
-        activeSpaceArticleJob?.cancel()
-        activeSpaceArticleJob = viewModelScope.launch {
-            _uiState.value = current.copy(isLoadingArticles = true).markTabLoading(SpaceMainTab.CONTRIBUTION)
-            val page = if (refresh) 1 else current.articlePage + 1
-            
-            try {
-                val result = fetchSpaceArticleList(currentMid, page)
-                 val currentState = _uiState.value as? SpaceUiState.Success ?: return@launch
-                 
-                 if (result != null && result.code == 0) {
-                     val newItems = result.data?.lists ?: emptyList()
-                     val allItems = if (refresh) newItems else currentState.articles + newItems
-                     val totalCount = result.data?.total?.takeIf { it > 0 } ?: allItems.size
-                     val hasMore = result.data?.has_more
-                         ?: (allItems.size < totalCount.coerceAtLeast(allItems.size))
-                     
-                     _uiState.value = currentState.copy(
-                         contributionTabs = ensureSpaceContributionTabsForAvailableContent(
-                             tabs = currentState.contributionTabs,
-                             hasArticles = newItems.isNotEmpty()
-                         ),
-                         articles = allItems,
-                         totalArticles = totalCount,
-                         articlePage = page,
-                         articleOffset = result.data?.offset.orEmpty(),
-                         hasMoreArticles = hasMore,
-                         isLoadingArticles = false
-                     ).markTabResult(SpaceMainTab.CONTRIBUTION)
-                 } else {
-                     _uiState.value = currentState.copy(
-                         isLoadingArticles = false
-                     ).markTabResult(
-                         tab = SpaceMainTab.CONTRIBUTION,
-                         error = "专栏加载失败"
-                     )
-                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                val currentState = _uiState.value as? SpaceUiState.Success ?: return@launch
-                _uiState.value = currentState.copy(
-                    isLoadingArticles = false
-                ).markTabResult(
-                    tab = SpaceMainTab.CONTRIBUTION,
-                    error = e.message ?: "专栏加载失败"
-                )
-            }
+
+    fun loadSpaceAudios(refresh: Boolean = false) {
+        ensureContributionAccount()
+        if (_uiState.value !is SpaceUiState.Success) return
+        if (!refresh && audioPagingSession != null) {
+            audioPagingSession?.appendOrRetry()
+            return
         }
+        activeSpaceAudioJob?.cancel()
+        val requestMid = currentMid
+        val generation = activeSpaceLoadGeneration
+        val identity = contributionAccount
+        lateinit var session: ForwardPagingSession<Int, SpaceContributionPage<SpaceAudioItem>>
+        session = ForwardPagingSession(
+            config = PagingConfig(pageSize = 1, initialLoadSize = 1, prefetchDistance = 1, enablePlaceholders = false),
+            sourceFactory = {
+                spaceContributionPagingSource<SpaceAudioItem>(itemKey = { it.id }) { number ->
+                    val response = checkNotNull(fetchSpaceAudioList(requestMid, number)) { "音频加载失败" }
+                    check(response.code == 0) { "音频加载失败：${response.code}" }
+                    val data = checkNotNull(response.data) { "音频内容响应不完整" }
+                    val items = data.data.orEmpty()
+                    val more = if (data.pageCount > 0) number < data.pageCount else
+                        (number.toLong() * SPACE_AUDIO_PAGE_SIZE_CONST < data.totalSize || items.size >= SPACE_AUDIO_PAGE_SIZE_CONST)
+                    SpaceContributionPage(number, items, data.totalSize, more)
+                }
+            },
+            onChanged = { pages, states ->
+                if (audioPagingSession === session && identity == TokenManager.accountIdentity.value &&
+                    shouldApplySpaceLoadResult(requestMid, currentMid, generation, activeSpaceLoadGeneration) && states != null
+                ) {
+                    val failure = (states.refresh as? LoadState.Error)?.error ?: (states.append as? LoadState.Error)?.error
+                    val ready = states.refresh is LoadState.NotLoading && pages.isNotEmpty()
+                    val loading = states.refresh is LoadState.Loading || states.append is LoadState.Loading
+                    _uiState.update { state ->
+                        val latest = state as? SpaceUiState.Success
+                        if (latest == null) state else {
+                            val items = if (ready) pages.flatMap { it.items } else latest.audios
+                            val next = latest.copy(
+                                audios = items,
+                                totalAudios = if (ready) maxOf(pages.last().total, items.size) else latest.totalAudios,
+                                audioPage = pages.lastOrNull()?.number ?: latest.audioPage,
+                                hasMoreAudios = !states.append.endOfPaginationReached,
+                                isLoadingAudios = loading,
+                            )
+                            if (loading) next.markTabLoading(SpaceMainTab.CONTRIBUTION) else
+                                next.markTabResult(SpaceMainTab.CONTRIBUTION, error = failure?.let { it.message ?: "音频加载失败" })
+                        }
+                    }
+                }
+            }
+        )
+        audioPagingSession = session
+        activeSpaceAudioJob = viewModelScope.launch { session.run() }
+    }
+
+    fun loadSpaceArticles(refresh: Boolean = false) = startSpaceArticles(refresh, silent = false)
+
+    private fun startSpaceArticles(refresh: Boolean, silent: Boolean) {
+        ensureContributionAccount()
+        if (_uiState.value !is SpaceUiState.Success) return
+        if (!silent) articlePagingReportsErrors = true
+        if (!refresh && articlePagingSession != null) {
+            articlePagingSession?.appendOrRetry()
+            return
+        }
+        activeSpaceArticleJob?.cancel()
+        val requestMid = currentMid
+        val generation = activeSpaceLoadGeneration
+        val identity = contributionAccount
+        articlePagingReportsErrors = !silent
+        lateinit var session: ForwardPagingSession<Int, SpaceContributionPage<SpaceArticleItem>>
+        session = ForwardPagingSession(
+            config = PagingConfig(pageSize = 1, initialLoadSize = 1, prefetchDistance = 1, enablePlaceholders = false),
+            sourceFactory = {
+                spaceContributionPagingSource<SpaceArticleItem>(itemKey = { it.id }) { number ->
+                    val response = checkNotNull(fetchSpaceArticleList(requestMid, number)) { "专栏加载失败" }
+                    check(response.code == 0) { "专栏加载失败：${response.code}" }
+                    val data = checkNotNull(response.data) { "专栏内容响应不完整" }
+                    SpaceContributionPage(number, data.lists, data.total, data.has_more, data.offset)
+                }
+            },
+            onChanged = { pages, states ->
+                if (articlePagingSession === session && identity == TokenManager.accountIdentity.value &&
+                    shouldApplySpaceLoadResult(requestMid, currentMid, generation, activeSpaceLoadGeneration) && states != null
+                ) {
+                    val failure = (states.refresh as? LoadState.Error)?.error ?: (states.append as? LoadState.Error)?.error
+                    val ready = states.refresh is LoadState.NotLoading && pages.isNotEmpty()
+                    val loading = states.refresh is LoadState.Loading || states.append is LoadState.Loading
+                    _uiState.update { state ->
+                        val latest = state as? SpaceUiState.Success
+                        if (latest == null) state else {
+                            val items = if (ready) pages.flatMap { it.items } else latest.articles
+                            val next = latest.copy(
+                                articles = items,
+                                totalArticles = if (ready) maxOf(pages.last().total, items.size) else latest.totalArticles,
+                                articlePage = pages.lastOrNull()?.number ?: latest.articlePage,
+                                hasMoreArticles = !states.append.endOfPaginationReached,
+                                isLoadingArticles = loading,
+                                articleOffset = pages.lastOrNull()?.offset ?: latest.articleOffset,
+                                contributionTabs = ensureSpaceContributionTabsForAvailableContent(latest.contributionTabs, hasArticles = items.isNotEmpty()),
+                            )
+                            if (!articlePagingReportsErrors) next else
+                            if (loading) next.markTabLoading(SpaceMainTab.CONTRIBUTION) else
+                                next.markTabResult(SpaceMainTab.CONTRIBUTION, error = failure?.let { it.message ?: "专栏加载失败" })
+                        }
+                    }
+                }
+            }
+        )
+        articlePagingSession = session
+        activeSpaceArticleJob = viewModelScope.launch { session.run() }
     }
 
     private fun probeSpaceArticles(mid: Long, requestGeneration: Long) {
-        activeSpaceArticleJob?.cancel()
-        activeSpaceArticleJob = viewModelScope.launch {
-            try {
-                val result = fetchSpaceArticleList(mid = mid, page = 1)
-                if (!shouldApplySpaceLoadResult(mid, currentMid, requestGeneration, activeSpaceLoadGeneration)) {
-                    return@launch
-                }
-                val currentState = _uiState.value as? SpaceUiState.Success ?: return@launch
-                val items = result?.takeIf { it.code == 0 }?.data?.lists.orEmpty()
-                if (items.isEmpty()) return@launch
-
-                val totalCount = result?.data?.total?.takeIf { it > 0 } ?: items.size
-                _uiState.value = currentState.copy(
-                    contributionTabs = ensureSpaceContributionTabsForAvailableContent(
-                        tabs = currentState.contributionTabs,
-                        hasArticles = true
-                    ),
-                    articles = items,
-                    totalArticles = totalCount,
-                    articlePage = 1,
-                    articleOffset = result?.data?.offset.orEmpty(),
-                    hasMoreArticles = result?.data?.has_more
-                        ?: (items.size < totalCount.coerceAtLeast(items.size))
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                android.util.Log.e("SpaceVM", "probeArticle error: ${e.message}")
-            }
-        }
+        if (articlePagingSession != null) return
+        if (!shouldApplySpaceLoadResult(mid, currentMid, requestGeneration, activeSpaceLoadGeneration)) return
+        startSpaceArticles(refresh = true, silent = true)
     }
 
     private fun probeSpaceCheese(mid: Long, requestGeneration: Long) {
@@ -2205,6 +2181,8 @@ class SpaceViewModel(
     private suspend fun fetchSpaceAudioList(uid: Long, page: Int): SpaceAudioResponse? {
         return try {
             spaceApi.getSpaceAudioList(uid = uid, pn = page)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("SpaceVM", "fetchAudio error: ${e.message}")
             null
